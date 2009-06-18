@@ -1,4 +1,5 @@
 import os, site, unittest, sys
+site.addsitedir(os.path.join('..'))
 import subprocess
 class test_module(unittest.TestCase):
     def setUp(self):
@@ -6,26 +7,31 @@ class test_module(unittest.TestCase):
 
     def test_read(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("kitty")'])
+                            'import sys; sys.stdout.write("kitty")'],
+                            stdout=subprocess.PIPE)
         got, expect = p.read(), "kitty"
         self.assertEqual(got, expect)
     
     def test_read_length_X(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("live love laf")'])
+                            'import sys; sys.stdout.write("live love laf")'],
+                            stdout=subprocess.PIPE)
         got, expect = p.read(6), "live l"
         self.assertEqual(got, expect)
 
     def test_seekzero(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("charles ayuda")'])
+                            'import sys; sys.stdout.write("charles ayuda")'],
+                            stdout=subprocess.PIPE)
         p.seek(0, 4)
         got, expect = p.read(), "les ayuda"
         self.assertEqual(got, expect)
-
+#ok issue with my code is that we shouldn't need all the std out additons; fix
+#so that it can be just run without declaring the PIPE
     def test_seekone(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("thinears")'])
+                            'import sys; sys.stdout.write("thinears")'],
+                            stdout=subprocess.PIPE)
         p.seek(0, 2)
         p.seek(1, 2)
         got, expect = p.read(), "ears"
@@ -60,35 +66,6 @@ class test_module(unittest.TestCase):
         p = subprocess.FileWrapper([sys.executable, "-c", "input()"])
         p.close()
         self.assertRaises(ValueError, lambda : p.write("This should fizail righ-chyhea."))
-        
-    #def test_filelike_noerror1(self): #eventually, make it so we can chose wether we read from stderr or stdin
-        #newproc = lambda : subprocess.FileWrapper([sys.executable,
-                        #"-c", ';'.join(codelines)])
-        #codelines = [
-            #"from os import sys",
-            #"outstream, instream = sys.stdout, sys.stdin",
-            #"a = instream.read()"
-            #"outstream.write(a)"
-            #"outstream.flush()"
-            #"input()" ]
-        #p = newproc()
-        #p.write("japan1\nwhat a\nneat place.\n")
-        ##implement seek in positive directions? simply discards skipped data
-        ##valid cases:   x.seek(offset, 1) where offset > 0
-        ##               x.seek(absolute, [0]) where absolute > x.tell()
-        ##               x.seek(any, 2) returns an error or something
-        #self.assertEqual(p.read(8),"what a \nn")
-        #self.assertEqual(p.readline(), "japan1\n")
-        #self.assertEqual(p.read(8),"what a \nn")
-        #p.seek(17, 0)
-        #p.seek(2, 1)
-        #self.assertEqual(p.read(),"place.\n")
-        #p.close()
-        #p = newproc()
-        #p.write("line1/nline2/nline3/n")
-        #self.assertEqual(p.readlines(12), ["line1/n", "line2/n"])
-        #self.assertEqual(p.readlines(1), ["line3/n"])
-        #p.close()
 
     def tearDown(self):
         pass

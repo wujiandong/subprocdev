@@ -1,4 +1,14 @@
-from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function#RE0:# subprocess - Subprocesses with accessible I/O streams
+#if version_info[0] < 3:
+from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function
+from sys import version_info
+"""
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "subprocess.py", line 3
+    from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function
+SyntaxError: from __future__ imports must occur at the beginning of the file
+"""
+# subprocess - Subprocesses with accessible I/O streams
 #
 # For more information about this module, see PEP 324.
 #
@@ -334,7 +344,6 @@ import sys
 if mswindows:
     from win32file import ReadFile, WriteFile
     from win32pipe import PeekNamedPipe
-    import msvcrt
 else:
     import select
     import fcntl
@@ -583,7 +592,7 @@ def getoutput(cmd):
     '/bin/ls'
     """
     return getstatusoutput(cmd)[1]
-
+#figure out what to do about newlines across OSes
 def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
     return TextIOWrapper(command, mode, buffering, newlines)
 
@@ -845,7 +854,10 @@ class Popen(object):
                 return 0
 
             try:
-                written = os.write(self.stdin.fileno(), input)
+                if sys.version_info > 3:
+                    written = os.write(self.stdin.fileno(), input)
+                else:
+                    written = os.write(self.stdin.fileno(), input)
             except OSError as why:
                 if why[0] == errno.EPIPE: #broken pipe
                     return self._close('stdin')
@@ -1452,67 +1464,67 @@ class Popen(object):
             """
             self.send_signal(signal.SIGKILL)
 
+if version_info[0] < 3:
+    def _demo_posix():
+        #
+        # Example 1: Simple redirection: Get process list
+        #
+        plist = Popen(["ps"], stdout=PIPE).communicate()[0]
+        print("Process list:")
+        print(plist)
 
-#def _demo_posix():
-    ##
-    ## Example 1: Simple redirection: Get process list
-    ##
-    #plist = Popen(["ps"], stdout=PIPE).communicate()[0]
-    #print("Process list:")
-    #print(plist)
+        #
+        # Example 2: Change uid before executing child
+        #
+        if os.getuid() == 0:
+            p = Popen(["id"], preexec_fn=lambda: os.setuid(100))
+            p.wait()
 
-    ##
-    ## Example 2: Change uid before executing child
-    ##
-    #if os.getuid() == 0:
-        #p = Popen(["id"], preexec_fn=lambda: os.setuid(100))
-        #p.wait()
+        #
+        # Example 3: Connecting several subprocesses
+        #
+        print("Looking for 'hda'...")
+        p1 = Popen(["dmesg"], stdout=PIPE)
+        p2 = Popen(["grep", "hda"], stdin=p1.stdout, stdout=PIPE)
+        print(repr(p2.communicate()[0]))
 
-    ##
-    ## Example 3: Connecting several subprocesses
-    ##
-    #x("Looking for 'hda'...")
-    #p1 = Popen(["dmesg"], stdout=PIPE)
-    #p2 = Popen(["grep", "hda"], stdin=p1.stdout, stdout=PIPE)
-    #print(repr(p2.communicate()[0]))
-
-    ##
-    ## Example 4: Catch execution error
-    ##
-    #print()
-    #print("Trying a weird file...")
-    #try:
-        #print(Popen(["/this/path/does/not/exist"]).communicate())
-    #except OSError as e:
-        #if e.errno == errno.ENOENT:
-            #print("The file didn't exist.  I thought so...")
-            #print("Child traceback:")
-            #print(e.child_traceback)
-        #else:
-            #print("Error", e.errno)
-    #else:
-        #print("Gosh.  No error.", file=sys.stderr)
-
-
-#def _demo_windows():
-    ##
-    ## Example 1: Connecting several subprocesses
-    ##
-    #print("Looking for 'PROMPT' in set output...")
-    #p1 = Popen("set", stdout=PIPE, shell=True)
-    #p2 = Popen('find "PROMPT"', stdin=p1.stdout, stdout=PIPE)
-    #print(repr(p2.communicate()[0]))
-
-    ##
-    ## Example 2: Simple execution of program
-    ##
-    #print("Executing calc...")
-    #p = Popen("calc")
-    #p.wait()
+        #
+        # Example 4: Catch execution error
+        #
+        print()
+        print("Trying a weird file...")
+        try:
+            print(Popen(["/this/path/does/not/exist"]).communicate())
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                print("The file didn't exist.  I thought so...")
+                print("Child traceback:")
+                print(e.child_traceback)
+            else:
+                print("Error", e.errno)
+        else:
+            print("Gosh.  No error.", file=sys.stderr)
 
 
-#if __name__ == "__main__":
-    #if mswindows:
-        #_demo_windows()
-    #else:
-        #_demo_posix()
+    def _demo_windows():
+        #
+        # Example 1: Connecting several subprocesses
+        #
+        print("Looking for 'PROMPT' in set output...")
+        p1 = Popen("set", stdout=PIPE, shell=True)
+        p2 = Popen('find "PROMPT"', stdin=p1.stdout, stdout=PIPE)
+        print(repr(p2.communicate()[0]))
+
+        #
+        # Example 2: Simple execution of program
+        #
+        print("Executing calc...")
+        p = Popen("calc")
+        p.wait()
+
+
+    if __name__ == "__main__":
+        if mswindows:
+            _demo_windows()
+        else:
+            _demo_posix()
