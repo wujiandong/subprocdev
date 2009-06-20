@@ -592,41 +592,81 @@ def getoutput(cmd):
     '/bin/ls'
     """
     return getstatusoutput(cmd)[1]
-#figure out what to do about newlines across OSes
-def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
+
+def FileWrapper(command, mode = 'r+', buffering = 1024):
+    """
+    FileWrapper(command, mode = 'r+', buffering = 1024) -> TextIOWrapper. 
+    
+    Returns a file-like representation of the executed process
+    """
     return TextIOWrapper(command, mode, buffering, newlines)
 
-class TextIOWrapper(object):#RE20...io._io._TextIOBase):
-    """Class to allow programs to stand-in as file objects.
-    
-    This class allows a program to act as a stand-in for a file object. 
+#Python 3.0 class TextIOWrapper(io._io._TextIOBase):
+class TextIOWrapper(object):
     """
+    Class to allow programs to stand-in as file objects.
+    
+    This class allows a program to act as a stand-in for a file object and
+    replicates the most common functions of file objects. Currently, it only
+    works with stdin and stdout.
+    """
+    # Will eventually add an additional object to return output from stderr
+    # as opposed to or in addition to stdout.
     def __init__(self, command, mode = 'r+', buffering = 1024, newlines = None):
-        self.popenobject = Popen(command, stdout = PIPE, stderr = PIPE)
+        # Initiate the subprocess.Popen object
+        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)
         self.cursor = 0
         self.buffereddata = ''
         self.mnewlines = newlines
+        # Will need to adjust the following lines as newlines does not work
+        # as a I initially thought
         if newlines is None and mswindows:
             self.mnewlines = '\r\n'
         else:
             self.mnewlines = '\n'
     
+    # Flush is not needed but in order to make it transparently compatible
+    # with file objects, a check to see if the file is open will make it act
+    # in the same manner an ordinary file would if you tried to flush it and
+    # it were clsoed
     def flush(self):
+        """
+        flush() -> None. 
+        
+        Normally it flush the internal I/O buffer for true file objects
+        but this function only checks to see if the file is closed.
+        """
         self.__closecheck()
     
     def __closecheck(self):
-        """Raise an error if the pipe has been terminated and I/O closed."""
+        """
+        Raise an error if the pipe has been terminated and I/O closed.
+        """
         # Check to see if the pipe is closed.
         if self.cursor == -1:
             raise ValueError( "I/O operation on a closed file.")  
             
     def close(self):
-        # Close simply terminates the process and resets the cursor
+        """Closes the process and resets the cursor."""
+        # Close simply terminates the process and resets the cursor to
+        # indicate the file is closed
         if self.cursor != -1:
             self.popenobject.terminate()
             self.cursor = -1
     
     def seek(self, pos, whence = 0):
+        """
+        seek(offset[, whence]) -> None.  Move to new file position.
+        
+        Argument offset is a byte count.  Optional argument whence defaults to
+        0 (offset from start of file, offset should be >= 0); other values are 1
+        (move relative to current position, positive or negative), and 2 (move
+        relative to end of file, usually negative, although many platforms allow
+        seeking beyond the end of a file).  If the file is opened in text mode,
+        only offsets returned by tell() are legal.  Use of other offsets causes
+        undefined behavior.
+        Note that not all file objects are seekable.
+        """
         # No seeking backwards
         if (whence == 0 and pos < self.cursor) or \
            (whence == 1 and pos < 0) or whence == 2:
@@ -641,14 +681,17 @@ class TextIOWrapper(object):#RE20...io._io._TextIOBase):
         self.cursor = len(rdata)
     
     def tell(self):
+        """Return the location of the file cursor."""
         self.__closecheck()
         return self.cursor
             
     def write(self, data):
+        """Write data to the child process."""
         self.__closecheck()
         self.popenobject.send(data)
 
     def readlines(self, sizehint = 10**9):
+        """Read a number of lines that are aproximately "sizehint" bytes."""
         # Doesn't need a close check because it uses readline
         linelist, linebuffer, bytesread = list(), 'x', 0
         while linebuffer != '' and bytesread < sizehint:
@@ -659,6 +702,7 @@ class TextIOWrapper(object):#RE20...io._io._TextIOBase):
         return linelist
         
     def readline(self):
+        """Returns a line from the child process."""
         self.__closecheck()
         marker, rdata = self.buffereddata.find(self.mnewlines), 'X'
         while marker == -1 and rdata is not '':
@@ -676,6 +720,7 @@ class TextIOWrapper(object):#RE20...io._io._TextIOBase):
         return linecontent
         
     def read(self, size = 10**9):
+        """Read size bytes returned by the child process."""
         self.__closecheck()
         rdata = self.buffereddata + (self.popenobject.recv(maxsize = size) or '')
         self.cursor += len(rdata)
@@ -786,15 +831,19 @@ class Popen(object):
             _active.append(self)
 
     def recv(self, maxsize=None):
+        """Asynchronous reading of maxsize bytes from standard out."""
         return self._recv('stdout', maxsize)
     
     def recv_err(self, maxsize=None):
+        """Asynchronous reading of maxsize bytes from standard error."""
         return self._recv('stderr', maxsize)
 
     def send_recv(self, input='', maxsize=None):
+        """Asynchronous sending of maxsize bytes to standard in."""
         return self.send(input), self.recv(maxsize), self.recv_err(maxsize)
 
     def get_conn_maxsize(self, which, maxsize):
+        """Get the greatest amount of bytes that can be sent or received."""
         if maxsize is None:
             maxsize = 1024
         elif maxsize < 1:
@@ -802,6 +851,7 @@ class Popen(object):
         return getattr(self, which), maxsize
     
     def _close(self, which):
+        """Close the file process."""
         getattr(self, which).close()
         setattr(self, which, None)
     
