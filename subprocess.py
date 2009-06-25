@@ -588,13 +588,13 @@ def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
     return TextIOWrapper(command, mode, buffering, newlines)
 
 class TextIOWrapper(object):
-#class TextIOWrapper(io._io._TextIOBase):
+#class TextIOWrapper(io._io._TextIOBase): ??
     """Class to allow programs to stand-in as file objects.
     
     This class allows a program to act as a stand-in for a file object. 
     """
     def __init__(self, command, mode = 'r+', buffering = 1024, newlines = None):
-        self.popenobject = Popen(command, stdout = PIPE, stderr = PIPE)
+        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)
         self.cursor = 0
         self.buffereddata = ''
         self.mnewlines = newlines
@@ -621,16 +621,19 @@ class TextIOWrapper(object):
     def seek(self, pos, whence = 0):
         # No seeking backwards
         if (whence == 0 and pos < self.cursor) or \
-           (whence == 1 and pos < 0) or whence == 2:
+           (whence == 1 and pos < 0) or whence > 1 or whence < 0:
             raise IOError( "Invalid seek position." )
-        if whence == 0:
+        if pos == 0:
+            return
+        elif whence == 0:
             # Calculate distance to that seek point and skip data
-            rdata = self.popenobject.read(pos - self.cursor)
-        else:
+            rdata = self.read(size = pos - self.cursor)
+        elif whence == 1:
             # Skip amount of data passed
-            rdata = self.popenobject.asyncread(pos)
+            rdata = self.read(size = pos)
+        else:
+            raise IOError( "Invalid seek position" )
         # Only move cursor as far as data was read instead of assuming
-        self.cursor = len(rdata)
     
     def tell(self):
         self.__closecheck()
@@ -649,12 +652,12 @@ class TextIOWrapper(object):
                 linelist.append(linebuffer)
                 bytesread += len(linebuffer)
         return linelist
-        
+
     def readline(self):
         self.__closecheck()
         marker, rdata = self.buffereddata.find(self.mnewlines), 'X'
         while marker == -1 and rdata is not '':
-            rdata = self.read()#self.popenobject.recv()
+            rdata = self.read(updatecursor = False)
             self.buffereddata += rdata
             marker = self.buffereddata.find(self.mnewlines)
         if rdata != '':
@@ -665,12 +668,14 @@ class TextIOWrapper(object):
             return ''
         linecontent = self.buffereddata[:fin]
         self.buffereddata = self.buffereddata[fin:]
+        self.cursor += len(linecontent)
         return linecontent
         
-    def read(self, size = 10**9):
+    def read(self, size = 10**9, updatecursor = True):
         self.__closecheck()
-        rdata = self.buffereddata + (self.popenobject.asyncread() or '')
-        self.cursor += len(rdata)
+        rdata = self.buffereddata + (self.popenobject.asyncread(t = 1, e = 0, maxsize = size) or '')
+        if updatecursor:
+            self.cursor += len(rdata)
         return rdata
 
 class Popen(object):
@@ -785,8 +790,8 @@ class Popen(object):
 
     def send_recv(self, input='', maxsize=None):
         bytes_sent = self.send(input)
-        out = recv_some(self, e=0, maxsize=maxsize)
-        err = recv_some(self, e=0, stderr=1,maxsize=maxsize)
+        out = self.asyncread(t=.1, e=0, stderr=False, maxsize=maxsize)
+        err = self.asyncread(t=.1, e=0, stderr=True, maxsize=maxsize)
         return bytes_sent, out, err
 
     def get_conn_maxsize(self, which, maxsize):
@@ -800,7 +805,11 @@ class Popen(object):
         getattr(self, which).close()
         setattr(self, which, None)
 
-    def asyncread(self, t=.1, e=1, tr=5, stderr=0):
+    def asyncread(self, t=.1, e=1, tr=5, stderr= None, maxsize=None, chunksize=None):
+        if stderr is None:
+            stderr = self.stderr
+        if chunksize is None and maxsize > 0:
+            chunksize = maxsize
         if tr < 1:
             tr = 1
         x = time.time()+t
@@ -809,19 +818,25 @@ class Popen(object):
         pr = self.recv
         if stderr:
             pr = self.recv_err
-        while time.time() < x or r:
-            r = pr()
+        while maxsize != 0 and (time.time() < x or r):
+            r = pr(chunksize)
             if r is None:
                 if e:
-                    raise Exception(message)
+                    raise Exception("Disconnected")
                 else:
                     break
             elif r:
+                if maxsize is not None:
+                    maxsize -= len(r)
+                    if (chunksize > maxsize):
+                        chunksize = maxsize
                 y.append(r)
             else:
+                if maxsize <= 0 and maxsize is not None:
+                    break
                 time.sleep(max((x-time.time())/tr, 0))
         return ''.join(y)
-        
+
     def asyncwrite(self, data):
         while len(data):
             sent = self.send(data)
