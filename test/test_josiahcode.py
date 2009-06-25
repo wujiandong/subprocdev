@@ -20,6 +20,7 @@ class test_module(unittest.TestCase):
                          'import sys; sys.exit(sys.stdin.read() == "digimon.en_US-8.14.97")'],
                          stdin=subprocess.PIPE)
         p.send("digimon.en_US-8.14.97")
+        p.poll()
         got, expect = p.returncode, 1
         self.assertEqual(got, expect)
     

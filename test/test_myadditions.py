@@ -1,5 +1,4 @@
 import os, site, unittest, sys
-site.addsitedir(os.path.join('..'))
 import subprocess
 class test_module(unittest.TestCase):
     def setUp(self):
@@ -7,31 +6,26 @@ class test_module(unittest.TestCase):
 
     def test_read(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("kitty")'],
-                            stdout=subprocess.PIPE)
+                            'import sys; sys.stdout.write("kitty")'])
         got, expect = p.read(), "kitty"
         self.assertEqual(got, expect)
     
     def test_read_length_X(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("live love laf")'],
-                            stdout=subprocess.PIPE)
+                            'import sys; sys.stdout.write("live love laf")'])
         got, expect = p.read(6), "live l"
         self.assertEqual(got, expect)
 
     def test_seekzero(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("charles ayuda")'],
-                            stdout=subprocess.PIPE)
+                            'import sys; sys.stdout.write("charles ayuda")'])
         p.seek(0, 4)
         got, expect = p.read(), "les ayuda"
         self.assertEqual(got, expect)
-#ok issue with my code is that we shouldn't need all the std out additons; fix
-#so that it can be just run without declaring the PIPE
+
     def test_seekone(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            'import sys; sys.stdout.write("thinears")'],
-                            stdout=subprocess.PIPE)
+                            'import sys; sys.stdout.write("thinears")'])
         p.seek(0, 2)
         p.seek(1, 2)
         got, expect = p.read(), "ears"
@@ -66,6 +60,44 @@ class test_module(unittest.TestCase):
         p = subprocess.FileWrapper([sys.executable, "-c", "input()"])
         p.close()
         self.assertRaises(ValueError, lambda : p.write("This should fizail righ-chyhea."))
+
+    def test_josaih_recv_universal(self):
+        p = subprocess.Popen([sys.executable, "-c",
+                         'import sys; sys.stdout.write("scout")'],
+                        stdout=subprocess.PIPE)
+        got, expect = subprocess.recv_some(p,t=1,e=0), "scout"
+        self.assertEqual(got, expect)
+
+    def test_send_universal(self):
+        p = subprocess.Popen([sys.executable, "-c",
+                         r'import sys; sys.exit(sys.stdin.readline() == "digimon.en_US-8.14.97\n")'],
+                         stdin=subprocess.PIPE)
+        p.send("digimon.en_US-8.14.97\n")
+        p.wait()
+        got, expect = p.returncode, 1
+        self.assertEqual(got, expect)
+
+    def test_send_universal(self):
+        p = subprocess.Popen([sys.executable, "-c",
+                         r'import sys; sys.exit(sys.stdin.readline() == "charles\n")'],
+                         stdin=subprocess.PIPE)
+        p.asyncwrite("charles\n")
+        got, expect = p.returncode, 1
+        self.assertEqual(got, expect)
+    
+    def test_recv_err_universal(self):
+        p = subprocess.Popen([sys.executable, "-c",
+                         r'import sys; sys.stderr.write("josiah carlson")'],
+                         stderr=subprocess.PIPE)
+        got, expect = p.asyncread(t=1,e=0,stderr=1), "josiah carlson"
+        self.assertEqual(got, expect)
+
+    def test_send_recv(self):
+        p = subprocess.Popen([sys.executable, "-c",
+                        'import sys; x=sys.stdin.readline();sys.stderr.write("X_X");sys.stdout.write(x.upper());sys.exit()'],
+                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        got = p.send_recv('spam\n')
+        self.assertEqual(got, (5, "SPAM\n", "X_X"))
 
     def tearDown(self):
         pass

@@ -1,14 +1,4 @@
-#if version_info[0] < 3:
-from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function
-from sys import version_info
-"""
-Traceback (most recent call last):
-  File "<stdin>", line 1, in <module>
-  File "subprocess.py", line 3
-    from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function
-SyntaxError: from __future__ imports must occur at the beginning of the file
-"""
-# subprocess - Subprocesses with accessible I/O streams
+from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function#RE0:# subprocess - Subprocesses with accessible I/O streams
 #
 # For more information about this module, see PEP 324.
 #
@@ -344,6 +334,7 @@ import sys
 if mswindows:
     from win32file import ReadFile, WriteFile
     from win32pipe import PeekNamedPipe
+    import msvcrt
 else:
     import select
     import fcntl
@@ -593,80 +584,41 @@ def getoutput(cmd):
     """
     return getstatusoutput(cmd)[1]
 
-def FileWrapper(command, mode = 'r+', buffering = 1024):
-    """
-    FileWrapper(command, mode = 'r+', buffering = 1024) -> TextIOWrapper. 
-    
-    Returns a file-like representation of the executed process
-    """
+def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
     return TextIOWrapper(command, mode, buffering, newlines)
 
-#Python 3.0 class TextIOWrapper(io._io._TextIOBase):
 class TextIOWrapper(object):
-    """
-    Class to allow programs to stand-in as file objects.
+#class TextIOWrapper(io._io._TextIOBase):
+    """Class to allow programs to stand-in as file objects.
     
-    This class allows a program to act as a stand-in for a file object and
-    replicates the most common functions of file objects. Currently, it only
-    works with stdin and stdout.
+    This class allows a program to act as a stand-in for a file object. 
     """
-    # Will eventually add an additional object to return output from stderr
-    # as opposed to or in addition to stdout.
     def __init__(self, command, mode = 'r+', buffering = 1024, newlines = None):
-        # Initiate the subprocess.Popen object
-        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)
+        self.popenobject = Popen(command, stdout = PIPE, stderr = PIPE)
         self.cursor = 0
         self.buffereddata = ''
         self.mnewlines = newlines
-        # Will need to adjust the following lines as newlines does not work
-        # as a I initially thought
         if newlines is None and mswindows:
             self.mnewlines = '\r\n'
         else:
             self.mnewlines = '\n'
     
-    # Flush is not needed but in order to make it transparently compatible
-    # with file objects, a check to see if the file is open will make it act
-    # in the same manner an ordinary file would if you tried to flush it and
-    # it were clsoed
     def flush(self):
-        """
-        flush() -> None. 
-        
-        Normally it flush the internal I/O buffer for true file objects
-        but this function only checks to see if the file is closed.
-        """
         self.__closecheck()
     
     def __closecheck(self):
-        """
-        Raise an error if the pipe has been terminated and I/O closed.
-        """
+        """Raise an error if the pipe has been terminated and I/O closed."""
         # Check to see if the pipe is closed.
         if self.cursor == -1:
             raise ValueError( "I/O operation on a closed file.")  
             
     def close(self):
-        """Closes the process and resets the cursor."""
-        # Close simply terminates the process and resets the cursor to
-        # indicate the file is closed
+        # Close simply terminates the process and resets the cursor
         if self.cursor != -1:
             self.popenobject.terminate()
             self.cursor = -1
     
     def seek(self, pos, whence = 0):
-        """
-        seek(offset[, whence]) -> None.  Move to new file position.
-        
-        Argument offset is a byte count.  Optional argument whence defaults to
-        0 (offset from start of file, offset should be >= 0); other values are 1
-        (move relative to current position, positive or negative), and 2 (move
-        relative to end of file, usually negative, although many platforms allow
-        seeking beyond the end of a file).  If the file is opened in text mode,
-        only offsets returned by tell() are legal.  Use of other offsets causes
-        undefined behavior.
-        Note that not all file objects are seekable.
-        """
         # No seeking backwards
         if (whence == 0 and pos < self.cursor) or \
            (whence == 1 and pos < 0) or whence == 2:
@@ -676,22 +628,19 @@ class TextIOWrapper(object):
             rdata = self.popenobject.read(pos - self.cursor)
         else:
             # Skip amount of data passed
-            rdata = self.popenobject.recv(pos)
+            rdata = self.popenobject.asyncread(pos)
         # Only move cursor as far as data was read instead of assuming
         self.cursor = len(rdata)
     
     def tell(self):
-        """Return the location of the file cursor."""
         self.__closecheck()
         return self.cursor
             
     def write(self, data):
-        """Write data to the child process."""
         self.__closecheck()
         self.popenobject.send(data)
 
     def readlines(self, sizehint = 10**9):
-        """Read a number of lines that are aproximately "sizehint" bytes."""
         # Doesn't need a close check because it uses readline
         linelist, linebuffer, bytesread = list(), 'x', 0
         while linebuffer != '' and bytesread < sizehint:
@@ -702,7 +651,6 @@ class TextIOWrapper(object):
         return linelist
         
     def readline(self):
-        """Returns a line from the child process."""
         self.__closecheck()
         marker, rdata = self.buffereddata.find(self.mnewlines), 'X'
         while marker == -1 and rdata is not '':
@@ -720,9 +668,8 @@ class TextIOWrapper(object):
         return linecontent
         
     def read(self, size = 10**9):
-        """Read size bytes returned by the child process."""
         self.__closecheck()
-        rdata = self.buffereddata + (self.popenobject.recv(maxsize = size) or '')
+        rdata = self.buffereddata + (self.popenobject.asyncread() or '')
         self.cursor += len(rdata)
         return rdata
 
@@ -831,19 +778,18 @@ class Popen(object):
             _active.append(self)
 
     def recv(self, maxsize=None):
-        """Asynchronous reading of maxsize bytes from standard out."""
         return self._recv('stdout', maxsize)
     
     def recv_err(self, maxsize=None):
-        """Asynchronous reading of maxsize bytes from standard error."""
         return self._recv('stderr', maxsize)
 
     def send_recv(self, input='', maxsize=None):
-        """Asynchronous sending of maxsize bytes to standard in."""
-        return self.send(input), self.recv(maxsize), self.recv_err(maxsize)
+        bytes_sent = self.send(input)
+        out = recv_some(self, e=0, maxsize=maxsize)
+        err = recv_some(self, e=0, stderr=1,maxsize=maxsize)
+        return bytes_sent, out, err
 
     def get_conn_maxsize(self, which, maxsize):
-        """Get the greatest amount of bytes that can be sent or received."""
         if maxsize is None:
             maxsize = 1024
         elif maxsize < 1:
@@ -851,10 +797,38 @@ class Popen(object):
         return getattr(self, which), maxsize
     
     def _close(self, which):
-        """Close the file process."""
         getattr(self, which).close()
         setattr(self, which, None)
-    
+
+    def asyncread(self, t=.1, e=1, tr=5, stderr=0):
+        if tr < 1:
+            tr = 1
+        x = time.time()+t
+        y = []
+        r = ''
+        pr = self.recv
+        if stderr:
+            pr = self.recv_err
+        while time.time() < x or r:
+            r = pr()
+            if r is None:
+                if e:
+                    raise Exception(message)
+                else:
+                    break
+            elif r:
+                y.append(r)
+            else:
+                time.sleep(max((x-time.time())/tr, 0))
+        return ''.join(y)
+        
+    def asyncwrite(self, data):
+        while len(data):
+            sent = self.send(data)
+            if sent is None:
+                raise Exception(message)
+            data = buffer(data, sent)
+
     if mswindows:
         def send(self, input):
             if not self.stdin:
@@ -904,10 +878,7 @@ class Popen(object):
                 return 0
 
             try:
-                if sys.version_info > 3:
-                    written = os.write(self.stdin.fileno(), input)
-                else:
-                    written = os.write(self.stdin.fileno(), input)
+                written = os.write(self.stdin.fileno(), input)
             except OSError as why:
                 if why[0] == errno.EPIPE: #broken pipe
                     return self._close('stdin')
@@ -1514,67 +1485,67 @@ class Popen(object):
             """
             self.send_signal(signal.SIGKILL)
 
-if version_info[0] < 3:
-    def _demo_posix():
-        #
-        # Example 1: Simple redirection: Get process list
-        #
-        plist = Popen(["ps"], stdout=PIPE).communicate()[0]
-        print("Process list:")
-        print(plist)
 
-        #
-        # Example 2: Change uid before executing child
-        #
-        if os.getuid() == 0:
-            p = Popen(["id"], preexec_fn=lambda: os.setuid(100))
-            p.wait()
+#def _demo_posix():
+    ##
+    ## Example 1: Simple redirection: Get process list
+    ##
+    #plist = Popen(["ps"], stdout=PIPE).communicate()[0]
+    #print("Process list:")
+    #print(plist)
 
-        #
-        # Example 3: Connecting several subprocesses
-        #
-        print("Looking for 'hda'...")
-        p1 = Popen(["dmesg"], stdout=PIPE)
-        p2 = Popen(["grep", "hda"], stdin=p1.stdout, stdout=PIPE)
-        print(repr(p2.communicate()[0]))
+    ##
+    ## Example 2: Change uid before executing child
+    ##
+    #if os.getuid() == 0:
+        #p = Popen(["id"], preexec_fn=lambda: os.setuid(100))
+        #p.wait()
 
-        #
-        # Example 4: Catch execution error
-        #
-        print()
-        print("Trying a weird file...")
-        try:
-            print(Popen(["/this/path/does/not/exist"]).communicate())
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                print("The file didn't exist.  I thought so...")
-                print("Child traceback:")
-                print(e.child_traceback)
-            else:
-                print("Error", e.errno)
-        else:
-            print("Gosh.  No error.", file=sys.stderr)
+    ##
+    ## Example 3: Connecting several subprocesses
+    ##
+    #x("Looking for 'hda'...")
+    #p1 = Popen(["dmesg"], stdout=PIPE)
+    #p2 = Popen(["grep", "hda"], stdin=p1.stdout, stdout=PIPE)
+    #print(repr(p2.communicate()[0]))
 
-
-    def _demo_windows():
-        #
-        # Example 1: Connecting several subprocesses
-        #
-        print("Looking for 'PROMPT' in set output...")
-        p1 = Popen("set", stdout=PIPE, shell=True)
-        p2 = Popen('find "PROMPT"', stdin=p1.stdout, stdout=PIPE)
-        print(repr(p2.communicate()[0]))
-
-        #
-        # Example 2: Simple execution of program
-        #
-        print("Executing calc...")
-        p = Popen("calc")
-        p.wait()
+    ##
+    ## Example 4: Catch execution error
+    ##
+    #print()
+    #print("Trying a weird file...")
+    #try:
+        #print(Popen(["/this/path/does/not/exist"]).communicate())
+    #except OSError as e:
+        #if e.errno == errno.ENOENT:
+            #print("The file didn't exist.  I thought so...")
+            #print("Child traceback:")
+            #print(e.child_traceback)
+        #else:
+            #print("Error", e.errno)
+    #else:
+        #print("Gosh.  No error.", file=sys.stderr)
 
 
-    if __name__ == "__main__":
-        if mswindows:
-            _demo_windows()
-        else:
-            _demo_posix()
+#def _demo_windows():
+    ##
+    ## Example 1: Connecting several subprocesses
+    ##
+    #print("Looking for 'PROMPT' in set output...")
+    #p1 = Popen("set", stdout=PIPE, shell=True)
+    #p2 = Popen('find "PROMPT"', stdin=p1.stdout, stdout=PIPE)
+    #print(repr(p2.communicate()[0]))
+
+    ##
+    ## Example 2: Simple execution of program
+    ##
+    #print("Executing calc...")
+    #p = Popen("calc")
+    #p.wait()
+
+
+#if __name__ == "__main__":
+    #if mswindows:
+        #_demo_windows()
+    #else:
+        #_demo_posix()
