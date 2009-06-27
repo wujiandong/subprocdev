@@ -3,7 +3,7 @@ import subprocess
 class test_module(unittest.TestCase):
     def setUp(self):
         pass
-"""
+
     def test_read(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
                             r'import sys; sys.stdout.write("kitty")'])
@@ -66,7 +66,7 @@ class test_module(unittest.TestCase):
         p = subprocess.FileWrapper([sys.executable, "-c", "input()"])
         p.close()
         self.assertRaises(ValueError, lambda : p.write("This should fizail righ-chyhea."))
-"""    
+
     def tearDown(self):
         pass
 

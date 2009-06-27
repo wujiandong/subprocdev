@@ -2,7 +2,7 @@ import os, site, unittest
 site.addsitedir(os.path.join('..'))
 #Import classes and methods to test after this point.
 import subprocess, sys
-
+from time import sleep
 class test_module(unittest.TestCase):
     def setUp(self):
         pass
@@ -11,7 +11,7 @@ class test_module(unittest.TestCase):
         p = subprocess.Popen([sys.executable, "-c",
                          'import sys; sys.stdout.write("scout")'],
                         stdout=subprocess.PIPE)
-        p.wait()
+        sleep(1)
         got, expect = p.recv(), b"scout"
         self.assertEqual(got, expect)
 
