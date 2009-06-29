@@ -585,25 +585,28 @@ def getoutput(cmd):
     return getstatusoutput(cmd)[1]
 
 def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
-    return TextIOWrapper(command, mode, buffering, newlines)
+    return TextIOWrapper(command, mode, buffering)
 
 class TextIOWrapper(object):
-#class TextIOWrapper(io._io._TextIOBase): ??
-    """Class to allow programs to stand-in as file objects.
-    
+    """
     This class allows a program to act as a stand-in for a file object. 
     """
-    def __init__(self, command, mode = 'r+', buffering = 1024, newlines = None):
-        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)
+    validnewlines = ['\n', '\r\n','\r'] #Order is significant.
+    def __init__(self, command, mode = 'r+', buffering = 1024):
         self.cursor = 0
         self.buffereddata = ''
-        self.mnewlines = newlines
-        if newlines is None and mswindows:
-            self.mnewlines = '\r\n'
-        else:
-            self.mnewlines = '\n'
+        self.newlines = ()
+        self.unewlines = 'U' in mode
+        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE, universal_newlines = self.unewlines)
+    
+    def __del__(self):
+        self.close()
     
     def flush(self):
+        """
+        Calls self.__closecheck() to emulate the error that a file would
+        return if it were closed upon calling flush.
+        """
         self.__closecheck()
     
     def __closecheck(self):
@@ -613,13 +616,18 @@ class TextIOWrapper(object):
             raise ValueError( "I/O operation on a closed file.")  
             
     def close(self):
-        # Close simply terminates the process and resets the cursor
+        """Terminate the child process."""
         if self.cursor != -1:
             self.popenobject.terminate()
             self.cursor = -1
     
     def seek(self, pos, whence = 0):
-        # No seeking backwards
+        """
+        Skip a specified number of bytes. Whence can only be 0 or 1 and only
+        seeking forward is allowed which means if whence is 0, pos must be
+        greater than or equal to the current cursor position. If whence is 1,
+        pos must be a postive number.
+        """
         if (whence == 0 and pos < self.cursor) or \
            (whence == 1 and pos < 0) or whence > 1 or whence < 0:
             raise IOError( "Invalid seek position." )
@@ -636,32 +644,51 @@ class TextIOWrapper(object):
         # Only move cursor as far as data was read instead of assuming
     
     def tell(self):
+        """
+        Returns the number of bytes read / the position in the data stream.
+        """
         self.__closecheck()
         return self.cursor
             
     def write(self, data):
+        """
+        Write data to the child process.
+        """
         self.__closecheck()
         self.popenobject.send(data)
 
-    def readlines(self, sizehint = 10**9):
-        # Doesn't need a close check because it uses readline
+    def readlines(self, sizehint = -1):
+        """
+        Reads approximately sizehint bytes and returns the data broken into
+        lines. If sizehint is left at its default value, lines will be
+        returned until no more data is returned by the child process.
+        """
         linelist, linebuffer, bytesread = list(), 'x', 0
-        while linebuffer != '' and bytesread < sizehint:
+        while linebuffer != '' and (bytesread < sizehint or sizehint < 0):
             linebuffer = self.readline()
             if linebuffer != '':
                 linelist.append(linebuffer)
                 bytesread += len(linebuffer)
         return linelist
 
+    def _newlinesearch(self, searchable):
+        for newlinetype in self.validnewlines:
+            marker = self.buffereddata.find(newlinetype)
+            if marker >= 0:
+                if newlinetype not in self.newlines:
+                    self.newlines = tuple(list(self.newlines) + [newlinetype])
+                break
+        return (marker, newlinetype)
+
     def readline(self):
-        self.__closecheck()
-        marker, rdata = self.buffereddata.find(self.mnewlines), 'X'
-        while marker == -1 and rdata is not '':
+        rdata = 'Just a filler to make the loop run at least once...'
+        marker = self._newlinesearch(self.buffereddata.find)
+        while marker[0] == -1 and rdata is not '':
             rdata = self.read(updatecursor = False)
             self.buffereddata += rdata
-            marker = self.buffereddata.find(self.mnewlines)
+            marker = self._newlinesearch(self.buffereddata.find)
         if rdata != '':
-            fin = len(self.mnewlines) + marker
+            fin = len(marker[1]) + marker[0]
         elif marker == -1:
             fin = len(self.buffereddata) - 1
         elif self.buffereddata == '':
@@ -670,10 +697,15 @@ class TextIOWrapper(object):
         self.buffereddata = self.buffereddata[fin:]
         self.cursor += len(linecontent)
         return linecontent
+
         
-    def read(self, size = 10**9, updatecursor = True):
+    def read(self, size = None, updatecursor = True):
+        """
+        Reads size bytes if it is specified, otherwise data is read from the
+        child process until no more data is returned.
+        """
         self.__closecheck()
-        rdata = self.buffereddata + (self.popenobject.asyncread(timeout = 1, maxsize = size) or '')
+        rdata = self.buffereddata + self.popenobject.asyncread(timeout = 1, maxsize = size)
         if updatecursor:
             self.cursor += len(rdata)
         return rdata
@@ -783,18 +815,36 @@ class Popen(object):
             _active.append(self)
 
     def recv(self, maxsize=None):
+        """
+        Non-blocking reading of stdout from the child process. It is
+        recommended that you use subprocess.Popen.asyncread instead of this
+        method.
+        """
         return self._recv('stdout', maxsize)
     
     def recv_err(self, maxsize=None):
+        """
+        Non-blocking reading of stderr from the child process. It is
+        recommended that you use subprocess.Popen.asyncread with the stderr
+        keyword specified as True.
+        """
         return self._recv('stderr', maxsize)
 
     def listen(self, input='', maxsize=None):
+        """
+        Sends input, if specified, and returns a tuple containing the number
+        of bytes written to the child process, and the output of the child
+        process. maxsize represents the number of bytes to read from the
+        child process. If it is None, data will be read until a specified
+        timeout is reached or no more data can be read.
+        """
         bytes_sent = self.send(input)
-        out = self.asyncread(timeout=.1, stderr=False, maxsize=maxsize)
-        err = self.asyncread(timeout=.1, stderr=True, maxsize=maxsize)
+        out = self.asyncread(timeout=.25, stderr=False, maxsize=maxsize)
+        err = self.asyncread(timeout=.25, stderr=True, maxsize=maxsize)
         return bytes_sent, out, err
 
     def get_conn_maxsize(self, which, maxsize):
+        # Not 100% certain if I get how this works yet.
         if maxsize is None:
             maxsize = 1024
         elif maxsize < 1:
@@ -805,7 +855,19 @@ class Popen(object):
         getattr(self, which).close()
         setattr(self, which, None)
 
-    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr= None, maxsize=None, chunksize=None):
+    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr = None, maxsize=None, chunksize=None):
+        """Non-blocking asynchronous reading of the child process.
+        
+        Read maxsize bytes asynchronously from the process in chunks of
+        chunksize bytes. If chunksize is None, the largest possible chunksize,
+        generally 1024 bytes, is used. If maxsize is none, this method will
+        attempt to read data until the specified timeout in seconds. To make
+        me the specified timeout more accurate or less accurate,
+        timeresolution can be increased or decreased respectively.
+        
+        If raiseonnone is True, the method will raise an exception if the
+        process appears to be disconnected.
+        """
         if chunksize is None and maxsize > 0:
             chunksize = maxsize
         if timeresolution < 1:
@@ -844,6 +906,10 @@ class Popen(object):
 
     if mswindows:
         def send(self, input):
+            """
+            Sends data to the child process in a non-blocking manner. Returns
+            the number of bytes written.
+            """
             if not self.stdin:
                 return None
 
@@ -884,6 +950,10 @@ class Popen(object):
 
     else:
         def send(self, input):
+            """
+            Sends data to the child process in a non-blocking manner. Returns
+            the number of bytes written.
+            """
             if not self.stdin:
                 return None
 
@@ -1497,68 +1567,3 @@ class Popen(object):
             """Kill the process with SIGKILL
             """
             self.send_signal(signal.SIGKILL)
-
-
-#def _demo_posix():
-    ##
-    ## Example 1: Simple redirection: Get process list
-    ##
-    #plist = Popen(["ps"], stdout=PIPE).communicate()[0]
-    #print("Process list:")
-    #print(plist)
-
-    ##
-    ## Example 2: Change uid before executing child
-    ##
-    #if os.getuid() == 0:
-        #p = Popen(["id"], preexec_fn=lambda: os.setuid(100))
-        #p.wait()
-
-    ##
-    ## Example 3: Connecting several subprocesses
-    ##
-    #x("Looking for 'hda'...")
-    #p1 = Popen(["dmesg"], stdout=PIPE)
-    #p2 = Popen(["grep", "hda"], stdin=p1.stdout, stdout=PIPE)
-    #print(repr(p2.communicate()[0]))
-
-    ##
-    ## Example 4: Catch execution error
-    ##
-    #print()
-    #print("Trying a weird file...")
-    #try:
-        #print(Popen(["/this/path/does/not/exist"]).communicate())
-    #except OSError as e:
-        #if e.errno == errno.ENOENT:
-            #print("The file didn't exist.  I thought so...")
-            #print("Child traceback:")
-            #print(e.child_traceback)
-        #else:
-            #print("Error", e.errno)
-    #else:
-        #print("Gosh.  No error.", file=sys.stderr)
-
-
-#def _demo_windows():
-    ##
-    ## Example 1: Connecting several subprocesses
-    ##
-    #print("Looking for 'PROMPT' in set output...")
-    #p1 = Popen("set", stdout=PIPE, shell=True)
-    #p2 = Popen('find "PROMPT"', stdin=p1.stdout, stdout=PIPE)
-    #print(repr(p2.communicate()[0]))
-
-    ##
-    ## Example 2: Simple execution of program
-    ##
-    #print("Executing calc...")
-    #p = Popen("calc")
-    #p.wait()
-
-
-#if __name__ == "__main__":
-    #if mswindows:
-        #_demo_windows()
-    #else:
-        #_demo_posix()

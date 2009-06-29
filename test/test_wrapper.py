@@ -6,8 +6,8 @@ class test_module(unittest.TestCase):
 
     def test_read(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            r'import sys; sys.stdout.write("kitty")'])
-        got, expect = p.read(), "kitty"
+                            r'import sys; sys.stdout.write("Kitty")'])
+        got, expect = p.read(), "Kitty"
         self.assertEqual(got, expect)
     
     def test_read_length_X(self):
@@ -18,9 +18,9 @@ class test_module(unittest.TestCase):
 
     def test_seekzero(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            r'import sys; sys.stdout.write("charles ayuda")'])
+                            r'import sys; sys.stdout.write("charles ayudo")'])
         p.seek(4, 0)
-        got, expect = p.read(), "les ayuda"
+        got, expect = p.read(), "les ayudo"
         self.assertEqual(got, expect)
 
     def test_seekone(self):
@@ -46,15 +46,23 @@ class test_module(unittest.TestCase):
     
     def test_readline(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                                    r'import sys; sys.stdout.write("j\np\nn")'])
-        got, expect = p.readline(), "j\n"
+                                    r'import sys; sys.stdout.write("chipman\nlikes\nle cafe.\n")'])
+        got, expect = p.readline(), "chipman\n"
         self.assertEqual(got, expect)
     
     def test_readlines(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                                    r'import sys; sys.stdout.write("eric\np\n:")'])
-        got, expect = p.readlines(7), ["eric\n", "p\n"]
+                                    r'import sys; sys.stdout.write("eric\np\r\n:")'])
+        got, expect = p.readlines(7), ["eric\n", "p\r\n"]
         self.assertEqual(got, expect)
+
+    def test_readlines_universal_newlines(self):
+        p = subprocess.FileWrapper([sys.executable, "-c",
+                                    r'import sys; sys.stdout.write("Funciona!\nPlease?\r\n:")'])
+        got, expect = p.readlines(), ["Funciona!\n", "Please?\n"]
+        self.assertEqual(got, expect)
+        self.assertTrue('\r\n' in p.newlines)
+        self.assertTrue('\n' in p.newlines)
     
     def test_close(self):
         p = subprocess.FileWrapper([sys.executable, "-c", "input()"])
