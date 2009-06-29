@@ -1,18 +1,4 @@
 from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function#RE0:# subprocess - Subprocesses with accessible I/O streams
-import sys
-if sys.version_info[0] == 3:
-    from io import BufferedWriter as buffer
-else:
-    class str(object):
-        def __init__(self,a,b=None):
-            self = a.__str__()
-    def isinstance(a,b):
-        if b == str:
-            return hasattr(a,'strip')
-        try:
-            return a == b(a)
-        except:
-            return False
 #
 # For more information about this module, see PEP 324.
 #
@@ -598,27 +584,24 @@ def getoutput(cmd):
     """
     return getstatusoutput(cmd)[1]
 
-def FileWrapper(name, mode = 'r+', buffering = 1024, newlines = None):
-    return TextIOWrapper(command = name, mode = mode, buffering = buffering)
+def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
+    return TextIOWrapper(command, mode, buffering, newlines)
 
 class TextIOWrapper(object):
-# class TextIOWrapper(io._io._TextIOBase): ??
-# I need to figure out what to do about stderr... do I just check for output
-# from both and send both or only send one or maybe add a special switch...
-# TextIOWrapper().readerr()
-# TextIOWrapper().readstd()
+#class TextIOWrapper(io._io._TextIOBase): ??
     """Class to allow programs to stand-in as file objects.
     
     This class allows a program to act as a stand-in for a file object. 
     """
-    validnewlines = ['\r\n','\n','\r'] #Order is significant.
-    def __init__(self, command, mode = 'r+', buffering = 1024):
-        self.buffering = buffering #(Not used)
+    def __init__(self, command, mode = 'r+', buffering = 1024, newlines = None):
+        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)
         self.cursor = 0
         self.buffereddata = ''
-        self.newlines = ()
-        self.unewlines = 'U' in mode
-        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE, universal_newlines = self.unewlines)
+        self.mnewlines = newlines
+        if newlines is None and mswindows:
+            self.mnewlines = '\r\n'
+        else:
+            self.mnewlines = '\n'
     
     def flush(self):
         self.__closecheck()
@@ -644,22 +627,24 @@ class TextIOWrapper(object):
             return
         elif whence == 0:
             # Calculate distance to that seek point and skip data
-            self.read(size = pos - self.cursor)
+            rdata = self.read(size = pos - self.cursor)
         elif whence == 1:
             # Skip amount of data passed
-            self.read(size = pos)
+            rdata = self.read(size = pos)
         else:
             raise IOError( "Invalid seek position" )
-
+        # Only move cursor as far as data was read instead of assuming
+    
     def tell(self):
         self.__closecheck()
         return self.cursor
             
     def write(self, data):
         self.__closecheck()
-        self.popenobject.asyncwrite(data)
+        self.popenobject.send(data)
 
     def readlines(self, sizehint = 10**9):
+        # Doesn't need a close check because it uses readline
         linelist, linebuffer, bytesread = list(), 'x', 0
         while linebuffer != '' and bytesread < sizehint:
             linebuffer = self.readline()
@@ -668,24 +653,15 @@ class TextIOWrapper(object):
                 bytesread += len(linebuffer)
         return linelist
 
-    def _newlinesearch(self, searchable):
-        for newlinetype in self.validnewlines:
-            marker = self.buffereddata.find(newlinetype)
-            if marker >= 0:
-                if newlinetype not in self.newlines:
-                    self.newlines = tuple(list(self.newlines) + [newlinetype])
-                break
-        return (marker, newlinetype)
-
     def readline(self):
-        rdata = 'Just a filler to make the loop run at least once...'
-        marker = self._newlinesearch(self.buffereddata.find)
-        while marker[0] == -1 and rdata is not '':
+        self.__closecheck()
+        marker, rdata = self.buffereddata.find(self.mnewlines), 'X'
+        while marker == -1 and rdata is not '':
             rdata = self.read(updatecursor = False)
             self.buffereddata += rdata
-            marker = self._newlinesearch(self.buffereddata.find)
+            marker = self.buffereddata.find(self.mnewlines)
         if rdata != '':
-            fin = len(marker[1]) + marker[0]
+            fin = len(self.mnewlines) + marker
         elif marker == -1:
             fin = len(self.buffereddata) - 1
         elif self.buffereddata == '':
@@ -697,7 +673,7 @@ class TextIOWrapper(object):
         
     def read(self, size = 10**9, updatecursor = True):
         self.__closecheck()
-        rdata = self.buffereddata + (self.popenobject.asyncread(timeout = 1, raiseerror = False, maxsize = size) or '')
+        rdata = self.buffereddata + (self.popenobject.asyncread(t = 1, e = 0, maxsize = size) or '')
         if updatecursor:
             self.cursor += len(rdata)
         return rdata
@@ -812,10 +788,10 @@ class Popen(object):
     def recv_err(self, maxsize=None):
         return self._recv('stderr', maxsize)
 
-    def listen(self, input='', maxsize=None):
+    def send_recv(self, input='', maxsize=None):
         bytes_sent = self.send(input)
-        out = self.asyncread(timeout=.25, raiseerror=False, stderr=False, maxsize=maxsize)
-        err = self.asyncread(timeout=.25, raiseerror=False, stderr=True, maxsize=maxsize)
+        out = self.asyncread(t=.1, e=0, stderr=False, maxsize=maxsize)
+        err = self.asyncread(t=.1, e=0, stderr=True, maxsize=maxsize)
         return bytes_sent, out, err
 
     def get_conn_maxsize(self, which, maxsize):
@@ -829,43 +805,39 @@ class Popen(object):
         getattr(self, which).close()
         setattr(self, which, None)
 
-    def asyncread(self, timeout=.1, raiseerror=True, resolution=5, stderr= None, maxsize=None, chunksize=None):
+    def asyncread(self, t=.1, e=1, tr=5, stderr= None, maxsize=None, chunksize=None):
         if stderr is None:
             stderr = self.stderr
-        if chunksize is None and maxsize is not None: #cant compare None > 0 anymore. boo 3.0 :P. There is an alternate fix. investigate later though.
-            if maxsize > 0:
-                chunksize = maxsize
-        if resolution < 1:
-            resolution = 1
-        timeup = time.time()+timeout
-        chunks = []
-        readdata = ''
-        iofunction = self.recv
+        if chunksize is None and maxsize > 0:
+            chunksize = maxsize
+        if tr < 1:
+            tr = 1
+        x = time.time()+t
+        y = []
+        r = ''
+        pr = self.recv
         if stderr:
-            iofunction = self.recv_err
-        while maxsize != 0 and (time.time() < timeup or readdata):
-            readdata = iofunction(chunksize)
-            if readdata is None:
-                if raiseerror:
+            pr = self.recv_err
+        while maxsize != 0 and (time.time() < x or r):
+            r = pr(chunksize)
+            if r is None:
+                if e:
                     raise Exception("Disconnected")
                 else:
                     break
-            elif readdata:
+            elif r:
                 if maxsize is not None:
-                    maxsize -= len(readdata)
+                    maxsize -= len(r)
                     if (chunksize > maxsize):
                         chunksize = maxsize
-                chunks.append(readdata)
+                y.append(r)
             else:
-                if maxsize is not None:
-                    if maxsize > 0:
-                        break
-                time.sleep(max((timeup-time.time())/resolution, 0))
-        return b''.join(chunks)
+                if maxsize <= 0 and maxsize is not None:
+                    break
+                time.sleep(max((x-time.time())/tr, 0))
+        return ''.join(y)
 
     def asyncwrite(self, data):
-        if hasattr(data, 'writable'):
-            data = buffer(data, 0)
         while len(data):
             sent = self.send(data)
             if sent is None:
@@ -921,12 +893,7 @@ class Popen(object):
                 return 0
 
             try:
-                # Do not understand bytes at all... this seems cludgey as heck
-                if hasattr(input,'writable'):
-                    written = os.write(self.stdin.fileno(), buffer(input))
-                else:
-                    sys.stderr.write(sys.stdout.encoding)
-                    written = os.write(self.stdin.fileno(), bytes(input, sys.stdout.encoding)) #figure out how to hand encoding.
+                written = os.write(self.stdin.fileno(), input)
             except OSError as why:
                 if why[0] == errno.EPIPE: #broken pipe
                     return self._close('stdin')

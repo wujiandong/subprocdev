@@ -50,18 +50,12 @@ class test_module(unittest.TestCase):
         got, expect = p.readline(), "j\n"
         self.assertEqual(got, expect)
     
-    def test_readlines_noarg(self):
-        p = subprocess.FileWrapper([sys.executable, "-c",
-                                    r'import sys; sys.stdout.write("jared\nlee\n")'])
-        got, expect = p.readlines(), ["jared\n", "lee\n"]
-        self.assertEqual(got, expect)
-
     def test_readlines(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
                                     r'import sys; sys.stdout.write("eric\np\n:")'])
         got, expect = p.readlines(7), ["eric\n", "p\n"]
         self.assertEqual(got, expect)
-
+    
     def test_close(self):
         p = subprocess.FileWrapper([sys.executable, "-c", "input()"])
         p.close()
