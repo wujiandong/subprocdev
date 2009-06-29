@@ -673,7 +673,7 @@ class TextIOWrapper(object):
         
     def read(self, size = 10**9, updatecursor = True):
         self.__closecheck()
-        rdata = self.buffereddata + (self.popenobject.asyncread(t = 1, e = 0, maxsize = size) or '')
+        rdata = self.buffereddata + (self.popenobject.asyncread(timeout = 1, maxsize = size) or '')
         if updatecursor:
             self.cursor += len(rdata)
         return rdata
@@ -788,10 +788,10 @@ class Popen(object):
     def recv_err(self, maxsize=None):
         return self._recv('stderr', maxsize)
 
-    def send_recv(self, input='', maxsize=None):
+    def listen(self, input='', maxsize=None):
         bytes_sent = self.send(input)
-        out = self.asyncread(t=.1, e=0, stderr=False, maxsize=maxsize)
-        err = self.asyncread(t=.1, e=0, stderr=True, maxsize=maxsize)
+        out = self.asyncread(timeout=.1, stderr=False, maxsize=maxsize)
+        err = self.asyncread(timeout=.1, stderr=True, maxsize=maxsize)
         return bytes_sent, out, err
 
     def get_conn_maxsize(self, which, maxsize):
@@ -805,37 +805,35 @@ class Popen(object):
         getattr(self, which).close()
         setattr(self, which, None)
 
-    def asyncread(self, t=.1, e=1, tr=5, stderr= None, maxsize=None, chunksize=None):
-        if stderr is None:
-            stderr = self.stderr
+    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr= None, maxsize=None, chunksize=None):
         if chunksize is None and maxsize > 0:
             chunksize = maxsize
-        if tr < 1:
-            tr = 1
-        x = time.time()+t
-        y = []
-        r = ''
-        pr = self.recv
+        if timeresolution < 1:
+            timeresolution = 1
+        limit = time.time()+timeout
+        chunks = []
+        dataread = ''
+        method = self.recv
         if stderr:
-            pr = self.recv_err
-        while maxsize != 0 and (time.time() < x or r):
-            r = pr(chunksize)
-            if r is None:
-                if e:
+            method = self.recv_err
+        while maxsize != 0 and (time.time() < limit or dataread):
+            dataread = method(chunksize)
+            if dataread is None:
+                if raiseonnone:
                     raise Exception("Disconnected")
                 else:
                     break
-            elif r:
+            elif dataread:
                 if maxsize is not None:
-                    maxsize -= len(r)
+                    maxsize -= len(dataread)
                     if (chunksize > maxsize):
                         chunksize = maxsize
-                y.append(r)
+                chunks.append(dataread)
             else:
                 if maxsize <= 0 and maxsize is not None:
                     break
-                time.sleep(max((x-time.time())/tr, 0))
-        return ''.join(y)
+                time.sleep(max((limit-time.time())/timeresolution, 0))
+        return ''.join(chunks)
 
     def asyncwrite(self, data):
         while len(data):
