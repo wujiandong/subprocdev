@@ -49,7 +49,7 @@ class test_module(unittest.TestCase):
                                     r'import sys; sys.stdout.write("chipman\nlikes\nle cafe.\n")'])
         got, expect = p.readline(), "chipman\n"
         self.assertEqual(got, expect)
-    
+    # Need to make sure cursor is in the right place.
     def test_readlines(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
                                     r'import sys; sys.stdout.write("eric\np\r\n:")'])

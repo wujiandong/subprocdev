@@ -672,29 +672,37 @@ class TextIOWrapper(object):
         return linelist
 
     def _newlinesearch(self, searchable):
+        best = len(searchable) + 1
+        bestnewline = None
         for newlinetype in self.validnewlines:
-            marker = self.buffereddata.find(newlinetype)
-            if marker >= 0:
-                if newlinetype not in self.newlines:
-                    self.newlines = tuple(list(self.newlines) + [newlinetype])
-                break
-        return (marker, newlinetype)
+            marker = searchable.find(newlinetype)
+            if marker >= 0 and marker < best:
+                best = marker
+                bestnewline = newlinetype
+        if bestnewline not in self.newlines and bestnewline is not None:
+            self.newlines = tuple(list(self.newlines) + [bestnewline])
+        elif best == len(searchable) + 1:
+            best = -1
+        return (best, bestnewline)
 
     def readline(self):
-        rdata = 'Just a filler to make the loop run at least once...'
-        marker = self._newlinesearch(self.buffereddata.find)
-        while marker[0] == -1 and rdata is not '':
+        rdata = 'SOMETHING'
+        marker = (-1,None)
+        while (marker[0] == -1 and not rdata) or (rdata is None):
             rdata = self.read(updatecursor = False)
-            self.buffereddata += rdata
-            marker = self._newlinesearch(self.buffereddata.find)
+            #self.buffereddata += rdata
+            marker = self._newlinesearch(rdata)
         if rdata != '':
-            fin = len(marker[1]) + marker[0]
+            if marker[1] is None:
+                fin = len(rdata)
+            else:
+                fin = len(marker[1]) + marker[0] #we need to replace newline in universal mode, dont forget.
         elif marker == -1:
-            fin = len(self.buffereddata) - 1
+            fin = len(rdata) - 1
         elif self.buffereddata == '':
             return ''
-        linecontent = self.buffereddata[:fin]
-        self.buffereddata = self.buffereddata[fin:]
+        linecontent = rdata[:fin]
+        self.buffereddata = rdata[fin:]
         self.cursor += len(linecontent)
         return linecontent
 
@@ -705,7 +713,8 @@ class TextIOWrapper(object):
         child process until no more data is returned.
         """
         self.__closecheck()
-        rdata = self.buffereddata + self.popenobject.asyncread(timeout = 1, maxsize = size)
+        aread = self.popenobject.asyncread(timeout = 1, maxsize = size)
+        rdata = self.buffereddata + aread
         if updatecursor:
             self.cursor += len(rdata)
         return rdata
