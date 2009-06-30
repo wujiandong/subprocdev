@@ -58,8 +58,9 @@ class test_module(unittest.TestCase):
 
     def test_readlines_universal_newlines(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                                    r'import sys; sys.stdout.write("Funciona!\nPlease?\r\n:")'])
-        got, expect = p.readlines(), ["Funciona!\n", "Please?\n"]
+                                    r'import sys; sys.stdout.write("Funciona!\nPlease?\r\n:")'],
+                                    mode = 'U')
+        got, expect = p.readlines(), ["Funciona!\n", "Please?\n", ":"]
         self.assertEqual(got, expect)
         self.assertTrue('\r\n' in p.newlines)
         self.assertTrue('\n' in p.newlines)

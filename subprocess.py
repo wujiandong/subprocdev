@@ -595,9 +595,9 @@ class TextIOWrapper(object):
     def __init__(self, command, mode = 'r+', buffering = 1024):
         self.cursor = 0
         self.buffereddata = ''
-        self.newlines = ()
+        self.newlines = ('\n',)
         self.unewlines = 'U' in mode
-        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE, universal_newlines = self.unewlines)
+        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)#, universal_newlines = self.unewlines)
     
     def __del__(self):
         self.close()
@@ -663,13 +663,16 @@ class TextIOWrapper(object):
         lines. If sizehint is left at its default value, lines will be
         returned until no more data is returned by the child process.
         """
-        linelist, linebuffer, bytesread = list(), 'x', 0
-        while linebuffer != '' and (bytesread < sizehint or sizehint < 0):
+        return list(self.__iter__(sizehint = sizehint))
+
+    def __iter__(self, sizehint = -1):
+        linebuffer, bytesread = 'x', 0
+        while True:
             linebuffer = self.readline()
-            if linebuffer != '':
-                linelist.append(linebuffer)
-                bytesread += len(linebuffer)
-        return linelist
+            bytesread += len(linebuffer)
+            yield linebuffer
+            if not self.buffereddata or (bytesread >= sizehint and sizehint > 0):
+                break
 
     def _newlinesearch(self, searchable):
         best = len(searchable) + 1
@@ -686,35 +689,35 @@ class TextIOWrapper(object):
         return (best, bestnewline)
 
     def readline(self):
-        rdata = 'SOMETHING'
-        marker = (-1,None)
-        while (marker[0] == -1 and not rdata) or (rdata is None):
-            rdata = self.read(updatecursor = False)
-            #self.buffereddata += rdata
-            marker = self._newlinesearch(rdata)
-        if rdata != '':
-            if marker[1] is None:
-                fin = len(rdata)
-            else:
-                fin = len(marker[1]) + marker[0] #we need to replace newline in universal mode, dont forget.
-        elif marker == -1:
-            fin = len(rdata) - 1
-        elif self.buffereddata == '':
-            return ''
-        linecontent = rdata[:fin]
-        self.buffereddata = rdata[fin:]
-        self.cursor += len(linecontent)
+        readdata = self.read()
+        marker, nltype = self._newlinesearch(readdata)
+        if marker >= 0:
+            eol = len(nltype) + marker
+            linecontent = readdata[:eol]
+            rebuffer = readdata[eol:]
+            self.cursor -= len(rebuffer)
+            self.buffereddata = rebuffer
+        else:
+            linecontent = readdata
         return linecontent
 
-        
     def read(self, size = None, updatecursor = True):
         """
         Reads size bytes if it is specified, otherwise data is read from the
         child process until no more data is returned.
         """
         self.__closecheck()
-        aread = self.popenobject.asyncread(timeout = 1, maxsize = size)
-        rdata = self.buffereddata + aread
+        rdata = self.buffereddata + self.popenobject.asyncread(timeout = 1.25, maxsize = size)
+        if self.unewlines:
+            if '\r\n' in rdata:
+                rdata = rdata.replace('\r\n','\n')
+                if '\r\n' not in self.newlines:
+                    self.newlines = tuple(list(self.newlines) + ['\r\n'])
+            if '\r' in rdata:
+                rdata = rdata.replace('\r','\n')
+                if '\r' not in self.newlines:
+                    self.newlines = tuple(list(self.newlines) + ['\r'])
+        self.buffereddata = ''
         if updatecursor:
             self.cursor += len(rdata)
         return rdata
