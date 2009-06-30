@@ -1,4 +1,4 @@
-from __future__ import nested_scopes, generators, division, absolute_import, with_statement, print_function#RE0:# subprocess - Subprocesses with accessible I/O streams
+# subprocess - Subprocesses with accessible I/O streams
 #
 # For more information about this module, see PEP 324.
 #
