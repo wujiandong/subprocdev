@@ -73,22 +73,6 @@ class test_module(unittest.TestCase):
         got = p.listen('sam\n')
         self.assertEqual(got, (4, b"Sam\n", b"X_X"))
 
-    def test_longrunning(self):
-        program = '\n'.join([
-            "import sys", "import time", "letters = 'abcd'", "while letters:",
-            "\ttry:", "\t\tletters = letters[0:int(sys.stdin.readline())]",
-            "\t\tsys.stdout.write(letters+'\\n')", "\t\tsys.stdout.flush()",
-            "\texcept ValueError:", "\t\tcontinue", "exit(True)" ])
-        p = subprocess.Popen([sys.executable, "-c", program],
-            stdout=PIPE, stdin=PIPE)
-        letters = "abcd"
-        n = len(letters)
-        while n >= 0:
-            p.asyncwrite(str(n)+'\n')
-            n -= (p.asyncread() == letters[0:n]+'\n')
-        p.wait()
-        self.assertEqual(1, p.returncode)
-
     def tearDown(self):
         pass
 
@@ -99,3 +83,4 @@ def suite():
 if __name__ == "__main__":
 
     unittest.main()
+    exit()

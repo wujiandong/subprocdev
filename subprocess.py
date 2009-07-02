@@ -587,7 +587,7 @@ def getoutput(cmd):
 def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
     return TextIOWrapper(command, mode, buffering)
 
-class TextIOWrapper(object):
+class TextIOWrapper(io.TextIOBase):
     """
     This class allows a program to act as a stand-in for a file object. 
     """
@@ -867,7 +867,7 @@ class Popen(object):
         getattr(self, which).close()
         setattr(self, which, None)
 
-    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr = None, maxsize=None, chunksize=None):
+    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr = None, maxsize = -1, chunksize=None):
         """Non-blocking asynchronous reading of the child process.
         
         Read maxsize bytes asynchronously from the process in chunks of
@@ -898,23 +898,28 @@ class Popen(object):
                 else:
                     break
             elif dataread:
-                if maxsize is not None:
+                if maxsize > 0:
                     maxsize -= len(dataread)
                     if (chunksize > maxsize):
                         chunksize = maxsize
                 chunks.append(dataread)
             else:
-                if maxsize <= 0 and maxsize is not None:
+                if maxsize == 0 and maxsize is not None:
                     break
                 time.sleep(max((limit-time.time())/timeresolution, 0))
-        return ''.join(chunks)
+        return b''.join(chunks)
 
-    def asyncwrite(self, data):
-        while len(data):
-            sent = self.send(data)
+    def asyncwrite(self, ioout):
+        if isinstance(ioout, str):
+            ioout = bytes(ioout, sys.stdout.encoding)
+            
+        while len(ioout) != 0:
+            print("len(ioout) pre send", len(ioout))
+            sent = self.send(ioout)
             if sent is None:
-                raise Exception(message)
-            data = buffer(data, sent)
+                raise Exception("Disconnected")
+            ioout = ioout[sent:]
+            print("Len Data After Send: ",len(ioout))
 
     if mswindows:
         def send(self, input):
@@ -966,6 +971,9 @@ class Popen(object):
             Sends data to the child process in a non-blocking manner. Returns
             the number of bytes written.
             """
+            if isinstance(input, str):
+                input = bytes(input, sys.stdout.encoding)
+            
             if not self.stdin:
                 return None
 
