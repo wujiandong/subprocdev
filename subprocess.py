@@ -701,7 +701,7 @@ class TextIOWrapper(io.TextIOBase):
             linecontent = readdata
         return linecontent
 
-    def read(self, size = None, updatecursor = True):
+    def read(self, size = -1, updatecursor = True):
         """
         Reads size bytes if it is specified, otherwise data is read from the
         child process until no more data is returned.
@@ -842,7 +842,7 @@ class Popen(object):
         """
         return self._recv('stderr', maxsize)
 
-    def listen(self, input='', maxsize=None):
+    def listen(self, input='', maxsize=-1):
         """
         Sends input, if specified, and returns a tuple containing the number
         of bytes written to the child process, and the output of the child
@@ -912,14 +912,12 @@ class Popen(object):
     def asyncwrite(self, ioout):
         if isinstance(ioout, str):
             ioout = bytes(ioout, sys.stdout.encoding)
-            
-        while len(ioout) != 0:
-            print("len(ioout) pre send", len(ioout))
+
+        while ioout:
             sent = self.send(ioout)
             if sent is None:
                 raise Exception("Disconnected")
             ioout = ioout[sent:]
-            print("Len Data After Send: ",len(ioout))
 
     if mswindows:
         def send(self, input):

@@ -26,18 +26,26 @@ class test_module(unittest.TestCase):
         self.assertEqual(got, expect)
 
     def test_longrunning(self):
-        program = '\n'.join([
-            "import sys", "import time", "letters = 'Mamie'", "while letters:",
-            "\ttry:", "\t\tletters = letters[0:int(sys.stdin.readline())]",
-            "\t\tsys.stdout.write(letters+'\\n')", "\t\tsys.stdout.flush()",
-            "\texcept ValueError:", "\t\tcontinue", "exit(True)" ])
+        program = r"""
+import sys
+import time
+letters = 'Mamie'
+while letters:
+    try:
+        letters = letters[0:int(sys.stdin.readline())]
+        sys.stdout.write(letters+'\n')
+        sys.stdout.flush()
+    except ValueError:
+        continue
+exit(True)
+"""
         p = subprocess.Popen([sys.executable, "-c", program],
             stdout=PIPE, stdin=PIPE)
-        letters = "Mamie"
+        letters = b"Mamie"
         n = len(letters)
         while n >= 0:
-            p.asyncwrite(str(n)+'\n')
-            n -= (p.asyncread() == letters[0:n]+'\n')
+            p.asyncwrite(bytes(str(n)+'\n', 'UTF-8'))
+            n -= (p.asyncread() == letters[0:n]+b'\n')
         p.wait()
         self.assertEqual(1, p.returncode)
 
