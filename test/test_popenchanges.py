@@ -43,6 +43,10 @@ exit(True)
             stdout=PIPE, stdin=PIPE)
         letters = b"Mamie"
         n = len(letters)
+        # We send a number to the program and we then make sure it returns
+        # letters[0:numbers_we_sent]. If we read the output of the program
+        # and it matches what we want, we ask the program to send one less
+        # letter
         while n >= 0:
             p.asyncwrite(bytes(str(n)+'\n', 'UTF-8'))
             n -= (p.asyncread() == letters[0:n]+b'\n')
