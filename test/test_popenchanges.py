@@ -2,25 +2,23 @@ from test import support
 import os, site, unittest
 site.addsitedir(os.path.join('..'))
 #Import classes and methods to test after this point.
-import subprocess, sys
-from subprocess import PIPE
-from time import sleep
+import subprocess, sys, time
 class ProcessTestCase(unittest.TestCase):
     def setUp(self):
         pass
-        
+
     def test_recv(self):
         p = subprocess.Popen([sys.executable, "-c",
                          'import sys; sys.stdout.write("Scout McCreary")'],
-                        stdout=PIPE)
-        sleep(1)
+                        stdout=subprocess.PIPE)
+        time.sleep(1)
         got, expect = p.recv(), b"Scout McCreary"
         self.assertEqual(got, expect)
 
     def test_send(self):
         p = subprocess.Popen([sys.executable, "-c",
                          r'import sys; sys.exit(sys.stdin.readline() == "kitty\n")'],
-                         stdin=PIPE)
+                         stdin=subprocess.PIPE)
         p.send("kitty\n")
         p.wait()
         got, expect = p.returncode, 1
@@ -41,7 +39,7 @@ class ProcessTestCase(unittest.TestCase):
             exit(True)
         """.replace(' ' * 12, '') #Removes the extra whitespace on the left
         p = subprocess.Popen([sys.executable, "-c", program],
-            stdout=PIPE, stdin=PIPE)
+            stdout=subprocess.PIPE, stdin=subprocess.PIPE)
         letters = b"Mamie"
         n = len(letters)
         # We send a number to the program and we then make sure it returns
@@ -57,7 +55,7 @@ class ProcessTestCase(unittest.TestCase):
     def test_asyncwrite(self):
         p = subprocess.Popen([sys.executable, "-c",
                          r'import sys; sys.exit(sys.stdin.readline() == "Lauren\n")'],
-                         stdin=PIPE)
+                         stdin=subprocess.PIPE)
         p.asyncwrite(b"Lauren\n")
         p.wait()
         got, expect = p.returncode, 1
@@ -66,14 +64,14 @@ class ProcessTestCase(unittest.TestCase):
     def test_asyncread_stdout(self):
         p = subprocess.Popen([sys.executable, "-c",
                          r'import sys; sys.stdout.write("Chuck")'],
-                         stdout=PIPE)
+                         stdout=subprocess.PIPE)
         got, expect = p.asyncread(timeout=1), b"Chuck"
         self.assertEqual(got, expect)
 
     def test_asyncread_stderr(self):
         p = subprocess.Popen([sys.executable, "-c",
                          r'import sys; sys.stderr.write("JC")'],
-                         stderr=PIPE)
+                         stderr=subprocess.PIPE)
         got, expect = p.asyncread(timeout=1, stderr = True), b"JC"
         self.assertEqual(got, expect)
 
@@ -81,10 +79,10 @@ class ProcessTestCase(unittest.TestCase):
         # On Python 3.0, is not passed consistently... :/ changed listen delay
         # to .25 seconds. because of it.
         p = subprocess.Popen([sys.executable, "-c",
-                         r'import sys; x=sys.stdin.readline();sys.stderr.write("X_X\n");sys.stdout.write(x.capitalize());sys.exit()'],
-                        stdout=PIPE, stdin=PIPE, stderr=PIPE)
-        got = p.listen('sam\n')
-        self.assertEqual(got, (4, b"Sam\n", b"X_X\n"))
+                         r'import sys; x=sys.stdin.readline();sys.stderr.write("X_X\r\n");sys.stdout.write(x.capitalize());sys.exit()'],
+                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines = True)
+        got = p.listen('sam\r\n')
+        self.assertEqual(got, (5, b"Sam\n", b"X_X\n"))
 
     def tearDown(self):
         pass

@@ -1029,7 +1029,11 @@ class Popen(object):
                 raise
             
             if self.universal_newlines:
-                read = self._translate_newlines(read, sys.stdin.encoding)
+                if not isinstance(read, str):
+                    read = self._translate_newlines(read, sys.stdin.encoding)
+                else:
+                    read = read.replace('\r\n', '\n').replace('\r','\n')
+                    read = bytes(read, sys.stderr.encoding)
             return read
 
     else:
@@ -1064,18 +1068,22 @@ class Popen(object):
             flags = fcntl.fcntl(conn, fcntl.F_GETFL)
             if not conn.closed:
                 fcntl.fcntl(conn, fcntl.F_SETFL, flags| os.O_NONBLOCK)
-            
+
             try:
                 if not select.select([conn], [], [], 0)[0]:
                     return ''
-                
-                r = conn.read(maxsize)
-                if not r:
+
+                read = conn.read(maxsize)
+                if not read:
                     return self._close(which)
     
                 if self.universal_newlines:
-                    read = self._translate_newlines(read, sys.stdin.encoding)
-                return r
+                    if not isinstance(read, str):
+                        read = self._translate_newlines(read, sys.stdin.encoding)
+                    else:
+                        read = read.replace('\r\n', '\n').replace('\r','\n')
+                        read = bytes(read, sys.stderr.encoding)
+                return read
             finally:
                 if not conn.closed:
                     fcntl.fcntl(conn, fcntl.F_SETFL, flags)
