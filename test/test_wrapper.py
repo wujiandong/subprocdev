@@ -1,8 +1,10 @@
 import os, site, unittest, sys
 import subprocess
-class test_module(unittest.TestCase):
+from test import support
+class ProcessTestCase(unittest.TestCase):
     def setUp(self):
-        pass
+        if hasattr(support, "reap_children"):
+            support.reap_children()
 
     def test_read(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
@@ -71,12 +73,14 @@ class test_module(unittest.TestCase):
         self.assertRaises(ValueError, lambda : p.write("This should fizail righ-chyhea."))
 
     def tearDown(self):
-        pass
+        if hasattr(support, "reap_children"):
+            support.reap_children()
 
-def suite():
-    s = unittest.makeSuite(test_module)
-    return unittest.TestSuite([s])
+def test_suite():
+    support.run_unittest(ProcessTestCase)
+    support.reap_children()
 
 if __name__ == "__main__":
 
-    unittest.main()
+    test_suite()
+    exit()

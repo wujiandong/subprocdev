@@ -332,9 +332,71 @@ import time
 import sys
 
 if mswindows:
-    from win32file import ReadFile, WriteFile
-    from win32pipe import PeekNamedPipe
     import msvcrt
+    from ctypes import c_char_p, byref, windll, c_long, \
+        create_string_buffer, sizeof
+
+    # WriteFile, ReadFile and PeekNamedPipe are needed for async I/O on Windows
+    # WriteFile and ReadFile can be substituted for the methods in PyWin32 but
+    # the PyWin32 PeekNamedPipe functionality is not the same.
+    def WriteFile(handle, writedata):
+        """
+        Windows kernel32.dll WriteFile API
+        
+        Writes writedata to the specified file or input/output device with the
+        given handle. A tuple is returned whose first element indicates failure
+        or success of the API call, 1 indicated an error and 0 a successful
+        execution.
+        """
+        cwritedata = c_char_p(writedata)
+        byteswritten = c_long(0)
+        returncode = windll.kernel32.WriteFile(c_long(handle),
+            cwritedata, len(writedata), byref(byteswritten), c_long(0))
+        return (1 - returncode, byteswritten.value)
+
+    def ReadFile(handle, readsize, lpOverlapped = None):
+        """
+        Windows kernel32.dll ReadFile API
+        
+        Reads data from the file or input/output device with the given handle.
+        A tuple is returned with the first element being the number of bytes
+        read and the second the data that was read.
+        
+        Please note that Windows API may convert \\n newlines to \\r\\n.
+        """
+        readdata = create_string_buffer(readsize)
+        bytesread = c_long(0)
+        returncode = windll.kernel32.ReadFile(c_long(handle),
+            byref(readdata), c_long(readsize),
+            byref(bytesread), c_long(0))
+        read = readdata.value
+        if returncode == True and read is None:
+            read = ''
+        return (bytesread.value, read)
+
+    def PeekNamedPipe(handle, buffersize):
+        """
+        Windows kernel32.dll ReadFile API
+        
+        Reads data and status information from the file or input/output device
+        with the given handle. A tuple containing the data read, amount of
+        bytes read and the remaining bytes left in the message is returned.
+        """
+        readdata = create_string_buffer(buffersize)
+        readbytes = c_long(0)
+        available = c_long(0)
+        leftthismessage = c_long(0)
+        returncode = windll.kernel32.PeekNamedPipe(c_long(handle),
+            byref(readdata),
+            buffersize,
+            byref(readbytes),
+            byref(available),
+            byref(leftthismessage))
+        read = readdata.value
+        if returncode == 1 and read is None:
+            read = ''
+        return (read, available.value, leftthismessage.value)
+
 else:
     import select
     import fcntl
@@ -587,7 +649,7 @@ def getoutput(cmd):
 def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
     return TextIOWrapper(command, mode, buffering)
 
-class TextIOWrapper(io.TextIOBase):
+class TextIOWrapper(object):
     """
     This class allows a program to act as a stand-in for a file object. 
     """
@@ -597,7 +659,7 @@ class TextIOWrapper(io.TextIOBase):
         self.buffereddata = ''
         self.newlines = ('\n',)
         self.unewlines = 'U' in mode
-        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)#, universal_newlines = self.unewlines)
+        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)
     
     def __del__(self):
         self.close()
@@ -706,8 +768,13 @@ class TextIOWrapper(io.TextIOBase):
         Reads size bytes if it is specified, otherwise data is read from the
         child process until no more data is returned.
         """
+        # To be more file-like, I update the object.newlines tuple as needed
+        # though I pre-populate it with \n as I am not quite sure how to handle
+        # detecting \n newlines before replacing the others without adding
+        # code I think would be more or less pointless.
         self.__closecheck()
-        rdata = self.buffereddata + self.popenobject.asyncread(timeout = 1.25, maxsize = size)
+        rdata = self.buffereddata + str(self.popenobject.asyncread(
+            timeout = 1.25, maxsize = size), sys.stdin.encoding)
         if self.unewlines:
             if '\r\n' in rdata:
                 rdata = rdata.replace('\r\n','\n')
@@ -853,10 +920,9 @@ class Popen(object):
         bytes_sent = self.send(input)
         out = self.asyncread(timeout=.25, stderr=False, maxsize=maxsize)
         err = self.asyncread(timeout=.25, stderr=True, maxsize=maxsize)
-        return bytes_sent, out, err
+        return (bytes_sent, out, err)
 
     def get_conn_maxsize(self, which, maxsize):
-        # Not 100% certain if I get how this works yet.
         if maxsize is None:
             maxsize = 1024
         elif maxsize < 1:
@@ -927,6 +993,9 @@ class Popen(object):
             """
             if not self.stdin:
                 return None
+                
+            if isinstance(input, str):
+                input = bytes(input, sys.stdout.encoding)
 
             try:
                 x = msvcrt.get_osfhandle(self.stdin.fileno())
@@ -960,7 +1029,7 @@ class Popen(object):
                 raise
             
             if self.universal_newlines:
-                read = self._translate_newlines(read)
+                read = self._translate_newlines(read, sys.stdin.encoding)
             return read
 
     else:
@@ -969,11 +1038,11 @@ class Popen(object):
             Sends data to the child process in a non-blocking manner. Returns
             the number of bytes written.
             """
-            if isinstance(input, str):
-                input = bytes(input, sys.stdout.encoding)
-            
             if not self.stdin:
                 return None
+
+            if isinstance(input, str):
+                input = bytes(input, sys.stdout.encoding)
 
             if not select.select([], [self.stdin], [], 0)[1]:
                 return 0
@@ -1005,7 +1074,7 @@ class Popen(object):
                     return self._close(which)
     
                 if self.universal_newlines:
-                    r = self._translate_newlines(r)
+                    read = self._translate_newlines(read, sys.stdin.encoding)
                 return r
             finally:
                 if not conn.closed:
