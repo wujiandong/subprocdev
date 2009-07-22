@@ -8,13 +8,13 @@ class ProcessTestCase(unittest.TestCase):
 
     def test_read(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            r'import sys; sys.stdout.write("Kitty")'])
+                            r'import sys; sys.stdout.write("Kitty")'], mode = 'U')
         got, expect = p.read(), "Kitty"
         self.assertEqual(got, expect)
     
     def test_read_length_X(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                            r'import sys; sys.stdout.write("live love laf")'])
+                            r'import sys; sys.stdout.write("live love laf")'], mode = 'U')
         got, expect = p.read(6), "live l"
         self.assertEqual(got, expect)
 
@@ -48,7 +48,7 @@ class ProcessTestCase(unittest.TestCase):
     
     def test_readline(self):
         p = subprocess.FileWrapper([sys.executable, "-c",
-                                    r'import sys; sys.stdout.write("chipman\nlikes\nle cafe.\n")'])
+                                    r'import sys; sys.stdout.write("chipman\nlikes\nle cafe.\n")'], mode = 'U')
         got, expect = p.readline(), "chipman\n"
         self.assertEqual(got, expect)
     # Need to make sure cursor is in the right place.

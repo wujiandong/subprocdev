@@ -679,9 +679,13 @@ class TextIOWrapper(object):
             
     def close(self):
         """Terminate the child process."""
-        if self.cursor != -1:
-            self.popenobject.terminate()
-            self.cursor = -1
+        self.popenobject.terminate()
+        for stream in [ 'stdin', 'stdout', 'stderr' ]:
+            try:
+                self.popenobject._close(stream)
+            except AttributeError:
+                pass
+        self.cursor = -1
     
     def seek(self, pos, whence = 0):
         """
