@@ -339,6 +339,8 @@ if mswindows:
     # WriteFile, ReadFile and PeekNamedPipe are needed for async I/O on Windows
     # WriteFile and ReadFile can be substituted for the methods in PyWin32 but
     # the PyWin32 PeekNamedPipe functionality is not the same.
+    
+    # from win32file import WriteFile
     def WriteFile(handle, writedata):
         """
         Windows kernel32.dll WriteFile API
@@ -354,6 +356,7 @@ if mswindows:
             cwritedata, len(writedata), byref(byteswritten), c_long(0))
         return (1 - returncode, byteswritten.value)
 
+    # from win32file import ReadFile
     def ReadFile(handle, readsize, lpOverlapped = None):
         """
         Windows kernel32.dll ReadFile API
@@ -366,14 +369,14 @@ if mswindows:
         """
         readdata = create_string_buffer(readsize)
         bytesread = c_long(0)
-        returncode = windll.kernel32.ReadFile(c_long(handle),
-            byref(readdata), c_long(readsize),
-            byref(bytesread), c_long(0))
+        returncode = windll.kernel32.ReadFile(c_long(handle), byref(readdata),
+            c_long(readsize), byref(bytesread), c_long(0))
         read = readdata.value
         if returncode == True and read is None:
             read = ''
         return (bytesread.value, read)
-
+    
+    # from win32pipe import PeekNamedPipe
     def PeekNamedPipe(handle, buffersize):
         """
         Windows kernel32.dll ReadFile API
@@ -387,10 +390,7 @@ if mswindows:
         available = c_long(0)
         leftthismessage = c_long(0)
         returncode = windll.kernel32.PeekNamedPipe(c_long(handle),
-            byref(readdata),
-            buffersize,
-            byref(readbytes),
-            byref(available),
+            byref(readdata), buffersize, byref(readbytes), byref(available),
             byref(leftthismessage))
         read = readdata.value
         if returncode == 1 and read is None:
@@ -646,24 +646,130 @@ def getoutput(cmd):
     """
     return getstatusoutput(cmd)[1]
 
-def FileWrapper(command, mode = 'r+', buffering = 1024, newlines = None):
-    return TextIOWrapper(command, mode, buffering)
 
-class TextIOWrapper(object):
+def ProcessIOWrapper(cmd, mode = 'r', buffering = 1024):
+    """
+    Returns a class that has the same methods as a file object reading only
+    from the stdout output produced from the program. When writing 
+    """
+    return PopenFileIO(cmd, mode, buffering)
+
+def ProcessIOWrapperStdErr(cmd, mode = 'r', buffering = 1024):
+    """
+    Returns a class that has the same methods as a file object reading only
+    from the stderr output produced from the program.
+    """
+    return PopenFileIO(cmd, mode, buffering, stderr = True, stdout = False)
+
+def ProcessIOWrapper2(cmd, mode = 'r', buffering = 1024):
+    return PopenFileIO(cmd, mode, buffering, stderr = True)
+
+class PopenFileIO(object):
     """
     This class allows a program to act as a stand-in for a file object. 
     """
     validnewlines = ['\n', '\r\n','\r'] #Order is significant.
-    def __init__(self, command, mode = 'r+', buffering = 1024):
-        self.cursor = 0
-        self.buffereddata = ''
-        self.newlines = ('\n',)
-        self.unewlines = 'U' in mode
-        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE)
+    newlines = ('\n',)
+    buffereddata = ''
+    cursor = 0
+    closed = False
+    isreadable = False
+    iswritable = False
+    
+    def __init__(self, command, mode = 'r', buffering = 1024, stdout = True, stderr = False):
+        self.mode = mode
+        self._evaluatemode(mode)
+        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE, stderr = PIPE)
+        self.name = command
+        self.stdout = stdout
+        self.stderr = stderr
     
     def __del__(self):
         self.close()
+
+    def __iter__(self, sizehint = -1):
+        linebuffer, bytesread = 'x', 0
+        while True:
+            linebuffer = self.readline()
+            bytesread += len(linebuffer)
+            yield linebuffer
+            if not self.buffereddata or (bytesread >= sizehint and sizehint > 0):
+                break
+
+    def __closecheck(self):
+        """Raise an error if the pipe has been terminated and I/O closed."""
+        # Check to see if the pipe is closed.
+        if self.closed:
+            raise ValueError( "I/O operation on a closed file.")  
+
+    def __next__(self):
+        return self.readline()
+
+    def _evaluatemode(self, mode):
+        canhaverw = True
+        unmodded = mode
+        self.unewlines = 'U' in mode        
+        # Append and write mode on a process are identical
+        mode = mode.replace('U', '', 1).replace('a', 'w')
+
+        if 'r' in mode:        
+            self.isreadable = True
+            mode = mode.replace('r', '', 1)
+            canhaverw = False
+            
+        if 'w' in mode and not canhaverw:
+            raise ValueError("must have exactly one of read/write/append mode")
+        elif 'w' in mode:
+            self.iswritable = 'w' in mode or '+' in mode
+            mode = mode.replace('w', '', 1)
+        
+        if '+' in mode:
+            self.iswritable = self.isreadable =  True
+            mode = mode.replace('+', '', 1)
+        
+        for notused in ['b', 't']:
+            mode = mode.replace(notused, '', 1)
+        
+        if mode or self.isreadable == False == self.iswritable:
+            raise ValueError("invalid mode: " + repr(unmodded))
+
+    def _newlinesearch(self, searchable):
+        best = len(searchable) + 1
+        bestnewline = None
+        for newlinetype in self.validnewlines:
+            marker = searchable.find(newlinetype)
+            if marker >= 0 and marker < best:
+                best = marker
+                bestnewline = newlinetype
+        if best == len(searchable) + 1:
+            best = -1
+        return (best, bestnewline)
     
+    def _getrawdata(self, maxsize):
+        buffer = []
+        if self.stdout:
+            buffer.append(str(self.popenobject.asyncread(timeout = 1.25, maxsize = maxsize), sys.stdout.encoding))
+        if self.stderr:
+            buffer.append(str(self.popenobject.asyncread(timeout = 1.25, maxsize = maxsize, stderr = True), sys.stderr.encoding))
+        return ''.join(buffer)
+
+    def truncate(self, size = None):
+        pass
+
+    def writelines(self, sequence):
+        """
+        Write the sequence of lines to the process. Does not add newlines to
+        the elements of the sequence.
+        """
+        for line in sequence:
+            self.write(line)
+
+    def fileno(self):
+        """
+        Returns the process I.D. number.
+        """
+        return self.popenobject.pid
+
     def flush(self):
         """
         Calls self.__closecheck() to emulate the error that a file would
@@ -671,22 +777,29 @@ class TextIOWrapper(object):
         """
         self.__closecheck()
     
-    def __closecheck(self):
-        """Raise an error if the pipe has been terminated and I/O closed."""
-        # Check to see if the pipe is closed.
-        if self.cursor == -1:
-            raise ValueError( "I/O operation on a closed file.")  
-            
+    def isatty(self):
+        """
+        Returns False every time as the process is not considered a tty device.
+        """
+        return False
+
     def close(self):
         """Terminate the child process."""
-        self.popenobject.terminate()
+        if hasattr(self, 'popenobject'):
+            self.popenobject.terminate()
         for stream in [ 'stdin', 'stdout', 'stderr' ]:
             try:
                 self.popenobject._close(stream)
             except AttributeError:
                 pass
-        self.cursor = -1
-    
+        self.closed = True
+
+    def seekable(self):
+        """
+        Always returns True.
+        """
+        return True
+
     def seek(self, pos, whence = 0):
         """
         Skip a specified number of bytes. Whence can only be 0 or 1 and only
@@ -715,13 +828,21 @@ class TextIOWrapper(object):
         """
         self.__closecheck()
         return self.cursor
-            
+
+    def writable(self):
+        return self.iswritable
+
     def write(self, data):
         """
         Write data to the child process.
         """
         self.__closecheck()
+        if not self.writable():
+            raise IOError(9, "Bad file descriptor")
         self.popenobject.send(data)
+
+    def readable(self):
+        return self.isreadable
 
     def readlines(self, sizehint = -1):
         """
@@ -731,30 +852,11 @@ class TextIOWrapper(object):
         """
         return list(self.__iter__(sizehint = sizehint))
 
-    def __iter__(self, sizehint = -1):
-        linebuffer, bytesread = 'x', 0
-        while True:
-            linebuffer = self.readline()
-            bytesread += len(linebuffer)
-            yield linebuffer
-            if not self.buffereddata or (bytesread >= sizehint and sizehint > 0):
-                break
-
-    def _newlinesearch(self, searchable):
-        best = len(searchable) + 1
-        bestnewline = None
-        for newlinetype in self.validnewlines:
-            marker = searchable.find(newlinetype)
-            if marker >= 0 and marker < best:
-                best = marker
-                bestnewline = newlinetype
-        if bestnewline not in self.newlines and bestnewline is not None:
-            self.newlines = tuple(list(self.newlines) + [bestnewline])
-        elif best == len(searchable) + 1:
-            best = -1
-        return (best, bestnewline)
-
     def readline(self):
+        """
+        Returns the next line from the process as a string. Will contain the
+        newline.
+        """
         readdata = self.read()
         marker, nltype = self._newlinesearch(readdata)
         if marker >= 0:
@@ -777,8 +879,9 @@ class TextIOWrapper(object):
         # detecting \n newlines before replacing the others without adding
         # code I think would be more or less pointless.
         self.__closecheck()
-        rdata = self.buffereddata + str(self.popenobject.asyncread(
-            timeout = 1.25, maxsize = size), sys.stdin.encoding)
+        if not self.readable():
+            raise IOError(9, "Bad file descriptor")
+        rdata = self.buffereddata + self._getrawdata(maxsize = size)
         if self.unewlines:
             if '\r\n' in rdata:
                 rdata = rdata.replace('\r\n','\n')
@@ -1006,8 +1109,8 @@ class Popen(object):
                 (errCode, written) = WriteFile(x, input)
             except ValueError:
                 return self._close('stdin')
-            except (pywintypes.error, Exception) as why:
-                if why[0] in (109, errno.ESHUTDOWN):
+            except Exception as why:
+                if why.errno in (109, errno.ESHUTDOWN):
                     return self._close('stdin')
                 raise
 
@@ -1027,8 +1130,8 @@ class Popen(object):
                     (errCode, read) = ReadFile(x, nAvail, None)
             except ValueError:
                 return self._close(which)
-            except (pywintypes.error, Exception) as why:
-                if why[0] in (109, errno.ESHUTDOWN):
+            except Exception as why:
+                if why.errno in (109, errno.ESHUTDOWN):
                     return self._close(which)
                 raise
             
@@ -1058,7 +1161,7 @@ class Popen(object):
             try:
                 written = os.write(self.stdin.fileno(), input)
             except OSError as why:
-                if why[0] == errno.EPIPE: #broken pipe
+                if why.errno == errno.EPIPE: #broken pipe
                     return self._close('stdin')
                 raise
 
