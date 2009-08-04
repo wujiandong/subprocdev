@@ -61,17 +61,17 @@ class ProcessTestCase(unittest.TestCase):
 
     def test_readlines(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
-                                    r'import sys; sys.stdout.write("eric\np\r\n:")'])
-        got, expect = p.readlines(7), ["eric\n", "p\r\n"]
+                                    r'import sys; sys.stdout.write("eric\np\r\n:")'], mode = 'rU')
+        got, expect = p.readlines(7), ["eric\n", "p\n"]
         self.assertEqual(got, expect)
 
     def test_readlines_universal_newlines(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
-                                    r'import sys; sys.stdout.write("Funciona!\nPlease?\r\n:")'],
+                                    r'import sys; sys.stdout.write("Funciona!\nPlease?\r:")'],
                                     mode = 'rU')
         got, expect = p.readlines(), ["Funciona!\n", "Please?\n", ":"]
         self.assertEqual(got, expect)
-        self.assertTrue('\r\n' in p.newlines)
+        self.assertTrue('\r' in p.newlines)
         self.assertTrue('\n' in p.newlines)
     
     def test_close(self):

@@ -789,7 +789,11 @@ class PopenFileIO(object):
     def close(self):
         """Terminate the child process."""
         if hasattr(self, 'popenobject'):
-            self.popenobject.terminate()
+            try:
+                self.popenobject.terminate()
+            except WindowsError as why:
+                if why.errno != 5:
+                    raise why
         for stream in [ 'stdin', 'stdout', 'stderr' ]:
             try:
                 self.popenobject._close(stream)
@@ -1040,7 +1044,7 @@ class Popen(object):
         err = self.asyncread(timeout=.25, stderr=True, maxsize=maxsize)
         return (bytes_sent, out, err)
 
-    def get_conn_maxsize(self, which, maxsize):
+    def _get_conn_maxsize(self, which, maxsize):
         if maxsize is None:
             maxsize = 1024
         elif maxsize < 1:
@@ -1068,12 +1072,12 @@ class Popen(object):
             chunksize = maxsize
         if timeresolution < 1:
             timeresolution = 1
-        limit = time.time()+timeout
         chunks = []
         dataread = ''
         method = self.recv
         if stderr:
             method = self.recv_err
+        limit = time.time()+timeout
         while maxsize != 0 and (time.time() < limit or dataread):
             dataread = method(chunksize)
             if dataread is None:
@@ -1101,7 +1105,7 @@ class Popen(object):
         while ioout:
             sent = self.send(ioout)
             if sent is None:
-                raise Exception("Disconnected. Bytes sent: " + str(bytessent))
+                raise Exception("Disconnected. Bytes sent: ", bytessent)
             ioout = ioout[sent:]
             bytessent += sent
         return bytessent
@@ -1131,7 +1135,7 @@ class Popen(object):
             return written
 
         def _recv(self, which, maxsize):
-            conn, maxsize = self.get_conn_maxsize(which, maxsize)
+            conn, maxsize = self._get_conn_maxsize(which, maxsize)
             if conn is None:
                 return None
             
@@ -1148,13 +1152,14 @@ class Popen(object):
                 if why.errno in (109, errno.ESHUTDOWN):
                     return self._close(which)
                 raise
-            
+
             if self.universal_newlines:
                 if not isinstance(read, str):
                     read = self._translate_newlines(read, sys.stdin.encoding)
                 else:
                     read = read.replace('\r\n', '\n').replace('\r','\n')
-                    read = bytes(read, sys.stderr.encoding)
+            if isinstance(read, str):
+                read = bytes(read, sys.stderr.encoding)
             return read
 
     else:
@@ -1182,7 +1187,7 @@ class Popen(object):
             return written
 
         def _recv(self, which, maxsize):
-            conn, maxsize = self.get_conn_maxsize(which, maxsize)
+            conn, maxsize = self._get_conn_maxsize(which, maxsize)
             if conn is None:
                 return None
             
@@ -1203,7 +1208,8 @@ class Popen(object):
                         read = self._translate_newlines(read, sys.stdin.encoding)
                     else:
                         read = read.replace('\r\n', '\n').replace('\r','\n')
-                        read = bytes(read, sys.stderr.encoding)
+                if isinstance(read, str):
+                    read = bytes(read, sys.stderr.encoding)
                 return read
             finally:
                 if not conn.closed:

@@ -287,6 +287,65 @@ Instances of the :class:`Popen` class have the following methods:
       to accept more data.  Use :meth:`communicate` to avoid that.
 
 
+.. method:: Popen.recv(maxsize=None)
+
+   Non-blocking reading of stdout from the child process. It is recommended that
+   you use :meth:`asyncread` instead of this method. Since this method is non-
+   blocking, data will not always be available to be read. :meth:`asyncread`
+   handles this by reading data periodically in a timed loop and concantenating
+   what was read before returning it.
+
+
+.. method:: Popen.recv_err(maxsize=None)
+   
+   Functions in the exact same manner as :meth:`recv` but instead of reading
+   from stdout, it reads from stderr.
+
+
+.. method:: Popen.send(input)
+
+   Write the given bytes to the subprocess in a non-blocking manner. If the
+   function is unable to communicate with the process, *None* is returned. It is
+   recommended that you use the asyncwrite method as it will automatically
+   handle buffering sending more data than the connection allows per send as
+   well as converting the input to bytes if it is given as a string.
+
+
+.. method:: Popen.listen(self, input='', maxsize=-1)
+
+   Sends input and returns a tuple containing the number of bytes written to
+   the child process, and the output of the child process. *maxsize* represents 
+   the greatest number of bytes to read from the child process. If it is *None*,
+   data will be read until a specified timeout is reached or no more data can be
+   read.
+
+
+.. method:: Popen.asyncread(timeout=.1, raiseonnone=False, timeresolution=5, stderr=False, maxsize=-1, chunksize=None)
+
+   Read data from the subprocess using the asnychronous methods. The method will
+   continue to try to read data for the number of seconds specified by
+   *timeout*. The *timeresolution* determines how many times during the duration
+   specified by *timeout* to check to see if the subprocess has any data to be
+   siphoned off.
+   
+   If *stderr* is *True*, this method will read from the stderr produced by the
+   subprocess instead of the stdout.
+   
+   Data will continue to be read until the specified time limit has expired or,
+   if specified, until *maxsize* bytes have been read. Data will be read in
+   chunks of bytes specified by *chunksize* when it is specified but otherwise,
+   the maximum amount, generally 1024 bytes, will be read if available.
+   
+   When *raiseonnone* is *True*, an exception will be raised when it appears the
+   child process has been disconnected.
+
+
+.. method:: Popen.asyncwrite
+
+   Functions in the same manner as the :meth:`send` method but will handle
+   any necessary buffering and byte conversions automatically.
+
+
 .. method:: Popen.communicate(input=None)
 
    Interact with process: Send data to stdin.  Read data from stdout and stderr,
@@ -373,6 +432,56 @@ The following attributes are also available:
    A negative value ``-N`` indicates that the child was terminated by signal
    ``N`` (Unix only).
 
+.. _subprocess-asyncmeths:
+
+Advantages Of Asynchronous Methods
+-----------------------------------
+
+The Popen.asyncread and Popen.asyncwrite methods are new to Python 3.1 and due
+to their non-blocking nature, have a number of advantages over the older
+methods, in particular :meth:`communicate`. 
+
+communicate example::
+
+   import sys
+   import subprocess
+   proc = subprocess.Popen([sys.executable, '-c',
+       'factor=int(input());print(factor*1000**1000**1000**1000**2448348.125)'],
+       stdin = subprocess.PIPE, stdout = subprocess.PIPE)
+
+   # Communicate will block until the program produces some output or exits
+   proc.communicate('41.1991\n')
+
+The program will halt at the `proc.communicate` call until the program returns
+something. Given the complexity of the expression, it will take most computers
+quite some time to produce a result assuming there isn't a runtime error that
+occurs in the mean time.
+
+With :meth:`asyncwrite` and :meth:`asyncread`, you can fire off the child
+process and continue to execute code in the parent process, regardless of
+what the child process is doing or the output it returns (or does not return).
+
+Asynchronous I/O example::
+
+   import sys
+   import subprocess
+   import time
+   import random
+   proc = subprocess.Popen([sys.executable, "-c",
+       "factor=int(input());print(factor*1000**1000**1000**1000**2448348.125)"],
+       stdin = subprocess.PIPE, stdout = subprocess.PIPE)
+   
+   # Communicate will block until the program produces some output or exits
+   proc.asyncwrite('324.2007\n')
+   timerstart = time.time()
+      
+   print("Calculating...")
+   pollresult = proc.asyncread(timeout=1.0)
+   while not pollresult:
+       print("Seconds elapsed: ", int(time.time() - timerstart))
+       pollresult = proc.asyncread(timeout=random.randint(1,5))
+   
+   print('Done!\n', str(pollresult))
 
 .. _subprocess-replacements:
 

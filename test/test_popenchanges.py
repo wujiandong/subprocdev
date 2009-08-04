@@ -46,9 +46,12 @@ class ProcessTestCase(unittest.TestCase):
         # letters[0:numbers_we_sent]. If we read the output of the program
         # and it matches what we want, we ask the program to send one less
         # letter
+        nl = b'\n'
+        if subprocess.mswindows:
+            nl = b'\r\n'
         while n >= 0:
             p.asyncwrite(bytes(str(n)+'\n', 'UTF-8'))
-            n -= (p.asyncread() == letters[0:n]+b'\n')
+            n -= (p.asyncread() == letters[0:n]+nl)
         p.wait()
         self.assertEqual(1, p.returncode)
 
@@ -79,10 +82,13 @@ class ProcessTestCase(unittest.TestCase):
         # On Python 3.0, is not passed consistently... :/ changed listen delay
         # to .25 seconds. because of it.
         p = subprocess.Popen([sys.executable, "-c",
-                         r'import sys; x=sys.stdin.readline();sys.stderr.write("X_X\r\n");sys.stdout.write(x.capitalize());sys.exit()'],
-                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines = True)
+                         r'import sys; x=sys.stdin.readline();sys.stderr.write("X_X\n");sys.stdout.write(x.capitalize());sys.exit()'],
+                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines = False)
         got = p.listen('sam\r\n')
-        self.assertEqual(got, (5, b"Sam\n", b"X_X\n"))
+        if subprocess.mswindows:
+            self.assertEqual(got, (5, b"Sam\n", b"X_X\r\n"))
+        else:
+            self.assertEqual(got, (5, b"Sam\n", b"X_X\n"))
 
     def tearDown(self):
         pass
