@@ -1,6 +1,5 @@
 import os, site, unittest, sys
 import subprocess
-import time
 from test import support
 class ProcessTestCase(unittest.TestCase):
     def setUp(self):
@@ -12,12 +11,14 @@ class ProcessTestCase(unittest.TestCase):
                             r'import sys; sys.stdout.write("Kitty")'], mode = 'rU')
         got, expect = p.read(), "Kitty"
         self.assertEqual(got, expect)
+        p.close()
     
     def test_read_length_X(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
                             r'import sys; sys.stdout.write("live love laf")'], mode = 'rU')
         got, expect = p.read(6), "live l"
         self.assertEqual(got, expect)
+        p.close()
 
     def test_seekzero(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
@@ -25,6 +26,7 @@ class ProcessTestCase(unittest.TestCase):
         p.seek(4, 0)
         got, expect = p.read(), "les ayudo"
         self.assertEqual(got, expect)
+        p.close()
 
     def test_seekone(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
@@ -33,6 +35,7 @@ class ProcessTestCase(unittest.TestCase):
         p.seek(2, 1)
         got, expect = p.read(), "ears"
         self.assertEqual(got, expect)
+        p.close()
 
     def test_tell(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
@@ -41,18 +44,21 @@ class ProcessTestCase(unittest.TestCase):
         p.seek(2, 1)
         got, expect = p.tell(), 4
         self.assertEqual(got, expect)
+        p.close()
 
     def test_seektwo(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
                                     r'import sys; sys.stdout.write("evil")'])
         self.assertRaises(IOError, lambda : p.seek(-12,2))
+        p.close()
     
     def test_readline(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
                                     r'import sys; sys.stdout.write("chipman\nlikes\nle cafe.\n")'], mode = 'rU')
         got, expect = p.readline(), "chipman\n"
         self.assertEqual(got, expect)
-    # Need to make sure cursor is in the right place.
+        p.close()
+
     def test_readlines(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
                                     r'import sys; sys.stdout.write("eric\np\r\n:")'])
@@ -127,32 +133,33 @@ class ProcessTestCase(unittest.TestCase):
         for mode in brokenmodes:
             try:
                 p = subprocess.ProcessIOWrapper([sys.executable, "-c", r'print("...")'], mode = mode)
+                p.close()
                 self.fail("Mode was considered valid; " + mode)
             except ValueError:
                 pass
 
     def test_stdoutonlywrapper(self):
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
-            r'import sys; print("you dont see this", file = sys.stderr); print("do you?")'], mode = 'rU')
-        self.assertEqual(p.read(), "do you?\n")
+            r'import sys; print("(this bit of output is from a test.)", file = sys.stderr); print("just maybe")'], mode = 'rU')
+        self.assertEqual(p.read(), "just maybe\n")
 
     def test_stderronlywrapper(self):
         p = subprocess.ProcessIOWrapperStdErr([sys.executable, "-c",
-            r'import sys; print("you dont see this"); print("do you?", file=sys.stderr)'], mode = 'rU')
-        self.assertEqual(p.read(), "do you?\n")
+            r'import sys; print("(this bit of output is from a test.)"); print("just maybe", file=sys.stderr)'], mode = 'rU')
+        self.assertEqual(p.read(), "just maybe\n")
+        p.close()
 
     def test_stderronlywrapper(self):
         p = subprocess.ProcessIOWrapper2([sys.executable, "-c",
             r'import sys; print("we are"); print("one!", file=sys.stderr)'], mode = 'rU')
         self.assertEqual(p.read(), "we are\none!\n")
 
-    def DISABLED_UNTIL_I_FIX_TEST_test_writelines(self):
-        lineset = ['.hach//SIGN\n', '2\n', '3\n']
+    def test_writelines(self):
+        lineset = ['1\n']
         p = subprocess.ProcessIOWrapper([sys.executable, "-c",
-            r'import sys; l=sys.stdin.readlines();sys.stderr.write(l);sys.stdout.write(str(l == ".hach//SIGN\n"))'])
+            r'import sys; print(sys.stdin.readline())'], mode = 'w+U')
         p.writelines(lineset)
-        p.writelines(lineset)
-        self.assertEqual("True", p.read())
+        self.assertEqual("1\n\n", p.read())
         p.close()
     
     def test_simplebools(self):

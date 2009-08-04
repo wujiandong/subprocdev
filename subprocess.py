@@ -450,7 +450,9 @@ else:
     import pickle
 
 __all__ = ["Popen", "PIPE", "STDOUT", "call", "check_call", "getstatusoutput",
-           "getoutput", "check_output", "CalledProcessError"]
+           "getoutput", "check_output", "CalledProcessError",
+           "ProcessIOWrapper", "ProcessIOWrapper2", "ProcessIOWrapperStdErr",
+           "PopenFileIO" ]
 
 try:
     MAXFD = os.sysconf("SC_OPEN_MAX")
@@ -679,7 +681,14 @@ class PopenFileIO(object):
     def __init__(self, command, mode = 'r', buffering = 1024, stdout = True, stderr = False):
         self.mode = mode
         self._evaluatemode(mode)
-        self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE, stderr = PIPE)
+        if stderr and stdout:
+            self.popenobject = Popen(command, stdout = PIPE, stdin = PIPE, stderr = PIPE)
+        elif stderr:
+            self.popenobject = Popen(command, stdin = PIPE, stderr = PIPE)
+        elif stdout:
+            self.popenobject = Popen(command, stdin = PIPE, stdout = PIPE)
+        else:
+            raise ValueError("stdout and stderr cannot both be False.")
         self.name = command
         self.stdout = stdout
         self.stderr = stderr
@@ -756,14 +765,6 @@ class PopenFileIO(object):
     def truncate(self, size = None):
         pass
 
-    def writelines(self, sequence):
-        """
-        Write the sequence of lines to the process. Does not add newlines to
-        the elements of the sequence.
-        """
-        for line in sequence:
-            self.write(line)
-
     def fileno(self):
         """
         Returns the process I.D. number.
@@ -776,6 +777,8 @@ class PopenFileIO(object):
         return if it were closed upon calling flush.
         """
         self.__closecheck()
+        if self.stdout:
+            self.popenobject.stdout.write('')
     
     def isatty(self):
         """
@@ -832,6 +835,14 @@ class PopenFileIO(object):
     def writable(self):
         return self.iswritable
 
+    def writelines(self, sequence):
+        """
+        Write the sequence of lines to the process. Does not add newlines to
+        the elements of the sequence.
+        """
+        for line in sequence:
+            self.write(line)
+
     def write(self, data):
         """
         Write data to the child process.
@@ -839,7 +850,7 @@ class PopenFileIO(object):
         self.__closecheck()
         if not self.writable():
             raise IOError(9, "Bad file descriptor")
-        self.popenobject.send(data)
+        self.popenobject.asyncwrite(data)
 
     def readable(self):
         return self.isreadable
@@ -1040,7 +1051,7 @@ class Popen(object):
         getattr(self, which).close()
         setattr(self, which, None)
 
-    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr = None, maxsize = -1, chunksize=None):
+    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr = False, maxsize = -1, chunksize=None):
         """Non-blocking asynchronous reading of the child process.
         
         Read maxsize bytes asynchronously from the process in chunks of
@@ -1085,12 +1096,15 @@ class Popen(object):
     def asyncwrite(self, ioout):
         if isinstance(ioout, str):
             ioout = bytes(ioout, sys.stdout.encoding)
+        bytessent = 0
 
         while ioout:
             sent = self.send(ioout)
             if sent is None:
-                raise Exception("Disconnected")
+                raise Exception("Disconnected. Bytes sent: " + str(bytessent))
             ioout = ioout[sent:]
+            bytessent += sent
+        return bytessent
 
     if mswindows:
         def send(self, input):
