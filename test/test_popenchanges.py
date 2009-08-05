@@ -84,11 +84,11 @@ class ProcessTestCase(unittest.TestCase):
         p = subprocess.Popen([sys.executable, "-c",
                          r'import sys; x=sys.stdin.readline();sys.stderr.write("X_X\n");sys.stdout.write(x.capitalize());sys.exit()'],
                         stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines = False)
-        got = p.listen('sam\r\n')
+        got = p.listen('sam\n')
         if subprocess.mswindows:
-            self.assertEqual(got, (5, b"Sam\n", b"X_X\r\n"))
+            self.assertEqual(got, (4, b"Sam\r\n", b"X_X\r\n"))
         else:
-            self.assertEqual(got, (5, b"Sam\n", b"X_X\n"))
+            self.assertEqual(got, (4, b"Sam\n", b"X_X\n"))
 
     def tearDown(self):
         pass

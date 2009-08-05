@@ -792,7 +792,7 @@ class PopenFileIO(object):
             try:
                 self.popenobject.terminate()
             except WindowsError as why:
-                if why.errno != 5:
+                if why.errno != 13:
                     raise why
         for stream in [ 'stdin', 'stdout', 'stderr' ]:
             try:
@@ -884,7 +884,7 @@ class PopenFileIO(object):
             linecontent = readdata
         return linecontent
 
-    def read(self, size = -1, updatecursor = True):
+    def read(self, size = None, updatecursor = True):
         """
         Reads size bytes if it is specified, otherwise data is read from the
         child process until no more data is returned.
@@ -1031,7 +1031,7 @@ class Popen(object):
         """
         return self._recv('stderr', maxsize)
 
-    def listen(self, input='', maxsize=-1):
+    def listen(self, input='', maxsize=None):
         """
         Sends input, if specified, and returns a tuple containing the number
         of bytes written to the child process, and the output of the child
@@ -1055,7 +1055,7 @@ class Popen(object):
         getattr(self, which).close()
         setattr(self, which, None)
 
-    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr = False, maxsize = -1, chunksize=None):
+    def asyncread(self, timeout=.1, raiseonnone = False, timeresolution=5, stderr = False, maxsize = None, chunksize=None):
         """Non-blocking asynchronous reading of the child process.
         
         Read maxsize bytes asynchronously from the process in chunks of
@@ -1068,6 +1068,11 @@ class Popen(object):
         If raiseonnone is True, the method will raise an exception if the
         process appears to be disconnected.
         """
+        if maxsize is not None:
+            if maxsize < 1:
+                maxsize = 1
+        else:
+            maxsize = -1
         if chunksize is None and maxsize > 0:
             chunksize = maxsize
         if timeresolution < 1:
@@ -1098,8 +1103,6 @@ class Popen(object):
         return b''.join(chunks)
 
     def asyncwrite(self, ioout):
-        if isinstance(ioout, str):
-            ioout = bytes(ioout, sys.stdout.encoding)
         bytessent = 0
 
         while ioout:

@@ -289,11 +289,15 @@ Instances of the :class:`Popen` class have the following methods:
 
 .. method:: Popen.recv(maxsize=None)
 
-   Non-blocking reading of stdout from the child process. It is recommended that
-   you use :meth:`asyncread` instead of this method. Since this method is non-
-   blocking, data will not always be available to be read. :meth:`asyncread`
-   handles this by reading data periodically in a timed loop and concantenating
-   what was read before returning it.
+   Non-blocking, asynchronous reading of stdout from the child process. Since
+   this method is non-blocking, data will not always be available to be read and
+   calls done in quick succession will just return empty strings. When
+   *maxsize*, the greatest number of bytes to be read from the child process, is
+   *None* specified, 1024 bytes will be read. If the value given is less than
+   one, one byte will be returned.
+
+   .. note::
+      It is recommended that you use :meth:`asyncread` instead of this method.
 
 
 .. method:: Popen.recv_err(maxsize=None)
@@ -306,44 +310,60 @@ Instances of the :class:`Popen` class have the following methods:
 
    Write the given bytes to the subprocess in a non-blocking manner. If the
    function is unable to communicate with the process, *None* is returned. It is
-   recommended that you use the asyncwrite method as it will automatically
-   handle buffering sending more data than the connection allows per send as
-   well as converting the input to bytes if it is given as a string.
+   recommended that you use :meth`asyncwrite`.
 
 
-.. method:: Popen.listen(self, input='', maxsize=-1)
+.. method:: Popen.listen(self, input='', maxsize=None)
 
    Sends input and returns a tuple containing the number of bytes written to
    the child process, and the output of the child process. *maxsize* represents 
-   the greatest number of bytes to read from the child process. If it is *None*,
-   data will be read until a specified timeout is reached or no more data can be
-   read.
+   the greatest number of bytes to read from stdout and stderr separately. If it
+   is *None*, data will be read until a specified timeout is reached or no more
+   data can be read.
 
 
-.. method:: Popen.asyncread(timeout=.1, raiseonnone=False, timeresolution=5, stderr=False, maxsize=-1, chunksize=None)
+.. method:: Popen.asyncread(timeout=.1, raiseonnone=False, timeresolution=5, stderr=False, maxsize=None, chunksize=None)
 
-   Read data from the subprocess using the asnychronous methods. The method will
-   continue to try to read data for the number of seconds specified by
-   *timeout*. The *timeresolution* determines how many times during the duration
-   specified by *timeout* to check to see if the subprocess has any data to be
-   siphoned off.
+   Read data from the child process using the asnychronous methods. This method
+   provides more control over reading the data than ::meth`recv` and is
+   especially useful if you expect that a program may not have data available to
+   read immediately but more than likely will in a known timeframe. Data will be
+   read until one of the following three conditions is met:
+   
+   * The specified timeout has expired
+   
+   * The process disconnected
+   
+   * The maximum number of bytes specified has been read
+
+   The number of seconds to attempt to read data is specified by *timeout*. The
+   *timeresolution* determines how many times during the duration specified by
+   *timeout* to check to see if the subprocess has any data to be siphoned off.
    
    If *stderr* is *True*, this method will read from the stderr produced by the
    subprocess instead of the stdout.
    
-   Data will continue to be read until the specified time limit has expired or,
-   if specified, until *maxsize* bytes have been read. Data will be read in
-   chunks of bytes specified by *chunksize* when it is specified but otherwise,
-   the maximum amount, generally 1024 bytes, will be read if available.
+   The number maximum number of bytes to read per timeout is determined by
+   *maxsize* . Data will be read in chunks of bytes specified by *chunksize*
+   when it is specified but otherwise 1024
+   
+   .. note::
+
+      There is no guarantee that bytes will be read in chunks of the specified
+      size since the method used will not block to attempt to read the given
+      amount of data.
    
    When *raiseonnone* is *True*, an exception will be raised when it appears the
-   child process has been disconnected.
-
+   child process has been disconnected. Otherwise, no exception will be raised
+   and the method will return the data that it was able to obtain before the
+   disconnect.
 
 .. method:: Popen.asyncwrite
 
-   Functions in the same manner as the :meth:`send` method but will handle
-   any necessary buffering and byte conversions automatically.
+   Functions in the same manner as the :meth:`send` method but the data is
+   written in chunks of 1024 bytes, and an *Exception* is raised if the child
+   process disconnects. The exception string will contain the number of bytes
+   that were successfully written to the child process.
 
 
 .. method:: Popen.communicate(input=None)
@@ -445,12 +465,11 @@ communicate example::
 
    import sys
    import subprocess
-   proc = subprocess.Popen([sys.executable, '-c',
-       'factor=int(input());print(factor*1000**1000**1000**1000**2448348.125)'],
+   proc = subprocess.Popen([sys.executable, "-c",
+       "factor=int(input());print(factor*1000**1000**1000**2448348)"],
        stdin = subprocess.PIPE, stdout = subprocess.PIPE)
-
-   # Communicate will block until the program produces some output or exits
-   proc.communicate('41.1991\n')
+   
+   proc.communicate(b'456901092723\n')
 
 The program will halt at the `proc.communicate` call until the program returns
 something. Given the complexity of the expression, it will take most computers
@@ -468,18 +487,18 @@ Asynchronous I/O example::
    import time
    import random
    proc = subprocess.Popen([sys.executable, "-c",
-       "factor=int(input());print(factor*1000**1000**1000**1000**2448348.125)"],
+       "factor=int(input());print(factor*1000**1000**1000**2448348)"],
        stdin = subprocess.PIPE, stdout = subprocess.PIPE)
    
    # Communicate will block until the program produces some output or exits
-   proc.asyncwrite('324.2007\n')
+   proc.asyncwrite('3242007\n')
    timerstart = time.time()
       
    print("Calculating...")
    pollresult = proc.asyncread(timeout=1.0)
    while not pollresult:
        print("Seconds elapsed: ", int(time.time() - timerstart))
-       pollresult = proc.asyncread(timeout=random.randint(1,5))
+       pollresult = proc.asyncread(timeout=random.randint(1,3))
    
    print('Done!\n', str(pollresult))
 
