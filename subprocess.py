@@ -692,6 +692,7 @@ class PopenFileIO(object):
         self.name = command
         self.stdout = stdout
         self.stderr = stderr
+        self.buffering = buffering
     
     def __del__(self):
         self.close()

@@ -262,6 +262,32 @@ Unlike some other popen functions, this implementation will never call /bin/sh
 implicitly.  This means that all characters, including shell metacharacters, can
 safely be passed to child processes.
 
+PopenFileIO Objects
+--------------------
+
+The functions :func:`ProcessIOWrapper`, :func:`ProcessIOWrapper2` annd
+:func:`ProcessIOWrapperStdErr` return instances of :class:`PopenFileIO`. This
+class has all of the functions that a class returned from the built-in
+:func:`open` function. This allows an executed process to take the place of a
+file object with the only change being a call to one of the following functions
+instead of the built-in :func:`open` function.
+
+.. function:: ProcessIOWrapper(cmd, mode='r', buffering=1024)
+   Return a class that allows an executed process to stand in place of a file
+   reading from stdout and writing to stdin.  Example::
+
+      >>> import subprocess
+      >>> fileio = subprocess.ProcessIOWrapper(['crontab','-l'])
+      >>> fileio.readlines()[1]
+      ['  0 0  *   *   *   mv ~/downloads/* ~/.local/share/Trash/files\n']
+
+.. function:: ProcessIOWrapper2(cmd, mode='r', buffering=1024)
+   Return a class that allows an executed process to stand in place of a file
+   reading from a combined stdout and stderr while writing to stdin.
+
+.. function:: ProcessIOWrapperStdErr(cmd, mode='r', buffering=1024)
+   Return a class that allows an executed process to stand in place of a file
+   reading from stderr and writing to stdin.
 
 Popen Objects
 -------------
@@ -455,7 +481,7 @@ The following attributes are also available:
 .. _subprocess-asyncmeths:
 
 Advantages Of Asynchronous Methods
------------------------------------
+----------------------------------
 
 The Popen.asyncread and Popen.asyncwrite methods are new to Python 3.1 and due
 to their non-blocking nature, have a number of advantages over the older
@@ -466,10 +492,12 @@ communicate example::
    import sys
    import subprocess
    proc = subprocess.Popen([sys.executable, "-c",
-       "factor=int(input());print(factor*1000**1000**1000**2448348)"],
+       "import time;t = int(input());time.sleep(t);print('Done')"],
        stdin = subprocess.PIPE, stdout = subprocess.PIPE)
    
-   proc.communicate(b'456901092723\n')
+   # Communicate will block until the program exits
+   proc.communicate(b'15\n')
+   print('That took a while...')
 
 The program will halt at the `proc.communicate` call until the program returns
 something. Given the complexity of the expression, it will take most computers
@@ -487,19 +515,18 @@ Asynchronous I/O example::
    import time
    import random
    proc = subprocess.Popen([sys.executable, "-c",
-       "factor=int(input());print(factor*1000**1000**1000**2448348)"],
+       "import time;t = int(input());time.sleep(t);print('Done');exit(1)"],
        stdin = subprocess.PIPE, stdout = subprocess.PIPE)
-   
-   # Communicate will block until the program produces some output or exits
-   proc.asyncwrite('3242007\n')
-   timerstart = time.time()
-      
-   print("Calculating...")
-   pollresult = proc.asyncread(timeout=1.0)
-   while not pollresult:
-       print("Seconds elapsed: ", int(time.time() - timerstart))
-       pollresult = proc.asyncread(timeout=random.randint(1,3))
-   
+
+   proc.asyncwrite('5\n')
+
+   print("Let's execute some code while we wait.")
+   while b'Done' not in proc.asyncread():
+       a, b = random.randint(456, 9010), random.randint(92, 723)
+       print(a,'*',b,'=',a*b)
+       time.sleep(1)
+
+
    print('Done!\n', str(pollresult))
 
 .. _subprocess-replacements:
